@@ -52,9 +52,9 @@ if ($action === 'cleanup_duplicates') {
 }
 
 if ($action === 'debug') {
-    $sStmt = $pdo->query("SELECT * FROM settings");
+    $sStmt = $pdo->query("SELECT `key`, `value` FROM settings");
     $settings = $sStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-    $lStmt = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 10");
+    $lStmt = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 15");
     $logs = $lStmt->fetchAll();
     $pCount = $pdo->query("SELECT count(*) FROM products")->fetchColumn();
     echo json_encode([
