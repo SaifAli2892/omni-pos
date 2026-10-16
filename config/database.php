@@ -4,12 +4,17 @@
  * Handles PDO Database connection with automatic database creation
  */
 
-define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
-define('DB_PORT', getenv('DB_PORT') ?: '3306');
-define('DB_USER', getenv('DB_USER') ?: 'root');
-define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');
-define('DB_NAME', getenv('DB_NAME') ?: 'omni_pos');
+$envHost = $_SERVER['DB_HOST'] ?? $_ENV['DB_HOST'] ?? getenv('DB_HOST');
+$envPort = $_SERVER['DB_PORT'] ?? $_ENV['DB_PORT'] ?? getenv('DB_PORT');
+$envUser = $_SERVER['DB_USER'] ?? $_ENV['DB_USER'] ?? getenv('DB_USER');
+$envPass = $_SERVER['DB_PASS'] ?? $_ENV['DB_PASS'] ?? getenv('DB_PASS');
+$envName = $_SERVER['DB_NAME'] ?? $_ENV['DB_NAME'] ?? getenv('DB_NAME');
 
+define('DB_HOST', !empty($envHost) ? $envHost : '127.0.0.1');
+define('DB_PORT', !empty($envPort) ? $envPort : '3306');
+define('DB_USER', !empty($envUser) ? $envUser : 'root');
+define('DB_PASS', $envPass !== false && $envPass !== null ? $envPass : '');
+define('DB_NAME', !empty($envName) ? $envName : 'omni_pos');
 
 function getDBConnection($includeDb = true) {
     try {
@@ -24,13 +29,19 @@ function getDBConnection($includeDb = true) {
         ]);
         return $pdo;
     } catch (PDOException $e) {
-        if (!$includeDb) {
-            die("Database server connection failed: " . $e->getMessage());
-        }
-        // If DB doesn't exist yet, we will try to connect without DB to allow installer
-        return false;
+        die("<div style='font-family:sans-serif;padding:30px;max-width:640px;margin:50px auto;border:1px solid #fca5a5;background:#fef2f2;border-radius:16px;color:#991b1b;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1);'>
+            <h3 style='margin-top:0;font-size:18px;'>Database Connection Error</h3>
+            <p style='font-size:14px;line-height:1.6;'><strong>Error:</strong> " . htmlspecialchars($e->getMessage()) . "</p>
+            <div style='font-size:13px;background:#ffffff;padding:15px;border-radius:10px;border:1px solid #fecaca;color:#374151;font-family:monospace;'>
+                <strong>Host:</strong> " . htmlspecialchars(DB_HOST) . "<br>
+                <strong>Port:</strong> " . htmlspecialchars(DB_PORT) . "<br>
+                <strong>User:</strong> " . htmlspecialchars(DB_USER) . "<br>
+                <strong>Database:</strong> " . htmlspecialchars(DB_NAME) . "
+            </div>
+        </div>");
     }
 }
+
 
 // Global DB instance
 $pdo = getDBConnection(true);
