@@ -1,0 +1,47 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Technical guide for building Scora apps and integrations. Learn about OAuth authentication, versioned GraphQL endpoints, webhooks, and billing."><meta name="robots" content="index,follow"><link rel="canonical" href="https://scora.com.pk/SC/developer-api-guide"><title>Developer API Guide | Scora</title><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Developer API Guide",
+  "description": "Technical guide for building Scora apps and integrations. Learn about OAuth authentication, versioned GraphQL endpoints, webhooks, and billing.",
+  "url": "https://scora.com.pk/SC/developer-api-guide",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Scora",
+    "url": "https://scora.com.pk"
+  }
+}
+</script><script src="https://cdn.tailwindcss.com?plugins=forms"></script><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"><style>body{font-family:Manrope,sans-serif;background:#f4f7f5;color:#17221d}code,pre{font-family:'JetBrains Mono',monospace}pre{overflow:auto;background:#07120e;color:#d9f9e4;border-radius:14px;padding:16px;font-size:12px;line-height:1.6}.card{background:#fff;border:1px solid #dbe5df;border-radius:18px}.pill{display:inline-block;border-radius:999px;background:#e8f4ec;color:#12644f;padding:3px 9px;font-size:11px;font-weight:800}</style></head><body><main class="mx-auto max-w-5xl px-5 py-8 sm:py-12"><a href="/SC/developer-doc" class="font-bold text-emerald-800">Back to Developer Resources</a><header class="mt-6"><span class="pill">API version 2026-08</span><h1 class="mt-3 text-3xl font-extrabold sm:text-4xl">Build a Scora app safely</h1><p class="mt-3 max-w-3xl text-slate-600">This guide documents the APIs and app surfaces currently implemented in Scora. Use the versioned OAuth GraphQL API for a new external app.</p></header>
+
+<section class="card mt-8 p-6"><h2 class="text-xl font-extrabold">1. Configure the app</h2><div class="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2"><p><b class="text-slate-900">Required scopes:</b> permissions a merchant selects at installation.</p><p><b class="text-slate-900">Optional scopes:</b> permissions requested later and usable only after merchant approval.</p><p><b class="text-slate-900">Admin API redirect URIs:</b> exact OAuth callback URLs; unlisted URLs are rejected.</p><p><b class="text-slate-900">Billing plans:</b> recurring plans that start as a merchant-approved pending request.</p><p><b class="text-slate-900">Extensions:</b> storefront, admin, account, checkout, POS, Flow, data-source, or sandbox surfaces.</p><p><b class="text-slate-900">Webhooks and proxy:</b> event delivery and storefront proxy configuration, not Admin API authentication.</p></div></section>
+
+<section class="card mt-5 p-6"><h2 class="text-xl font-extrabold">2. Connect a merchant with OAuth</h2><p class="mt-2 text-sm text-slate-600">Run this flow on your backend. Never expose the client secret or PKCE verifier in browser JavaScript.</p><ol class="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-700"><li>Create a PKCE verifier, its S256 challenge, and a random state value.</li><li>Redirect the merchant to the authorize URL.</li><li>Verify state after Scora redirects to the registered callback with a one-time code.</li><li>Exchange the code server-side, then call GraphQL with the access token.</li></ol><pre class="mt-4">GET https://scora.com.pk/api/admin/oauth/authorize?client_id=APP_ID&amp;installation_id=INSTALLATION_ID&amp;redirect_uri=https%3A%2F%2Fapp.example.com%2Foauth%2Fcallback&amp;scope=products%3Aread&amp;state=RANDOM_STATE&amp;code_challenge=PKCE_S256_CHALLENGE&amp;code_challenge_method=S256
+
+POST https://scora.com.pk/api/admin/oauth/token
+Content-Type: application/json
+
+{"grant_type":"authorization_code","client_id":APP_ID,"client_secret":"BACKEND_ONLY_SECRET","code":"ONE_TIME_CODE","redirect_uri":"https://app.example.com/oauth/callback","code_verifier":"ORIGINAL_PKCE_VERIFIER"}</pre><p class="mt-3 text-sm text-slate-600">Access tokens last 15 minutes. Refresh tokens last 30 days, rotate on use, and a reused refresh token revokes its token family.</p></section>
+
+<section class="card mt-5 p-6"><h2 class="text-xl font-extrabold">3. Call versioned GraphQL</h2><p class="mt-2 text-sm text-slate-600">Endpoint: <code>https://scora.com.pk/api/admin/2026-08/graphql</code>.</p><pre class="mt-4">POST /api/admin/2026-08/graphql
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+Idempotency-Key: unique-retry-key
+
+{"query":"query { products(first: 10) { nodes { id title handle price } } }"}</pre><p class="mt-3 text-sm text-slate-600">Each token is bound to one active app installation and store. Scopes, request size, query depth, aliases, cost, pagination, rate limits, and mutation audit checks are enforced.</p></section>
+
+<section class="card mt-5 p-6"><h2 class="text-xl font-extrabold">4. Billing and optional permissions</h2><p class="mt-2 text-sm text-slate-600">These mutations create a request only. They cannot charge a merchant or grant a permission automatically.</p><pre class="mt-4">mutation RequestPlan {
+  appSubscriptionRequest(input: { planKey: "pro", clientMutationId: "plan-001" }) {
+    subscriptionId status message userErrors { message code }
+  }
+}
+
+mutation RequestPermission {
+  appOptionalScopesRequest(input: { scopes: ["orders:read"], clientMutationId: "scope-001" }) {
+    scopeRequestId status scopes message userErrors { message code }
+  }
+}</pre><p class="mt-3 text-sm text-slate-600">`appSubscriptionCancel` and `appUsageRecordCreate` are also available. Usage and subscription operations require <code>billing:write</code>; an active subscription is required for usage.</p></section>
+
+<section class="card mt-5 p-6"><h2 class="text-xl font-extrabold">5. Surfaces and integration requirements</h2><div class="mt-3 grid gap-4 text-sm text-slate-600 md:grid-cols-2"><p><b class="text-slate-900">Embedded admin links:</b> Scora hosts the authenticated page and sandboxes your configured URL in an iframe. Its short-lived embedded session token is not an Admin API bearer token.</p><p><b class="text-slate-900">Sandbox functions:</b> Scora runs the JSON expression itself. It cannot make network, database, filesystem, or other I/O calls.</p></div><ul class="mt-5 list-disc space-y-2 pl-5 text-sm text-slate-600"><li>Store client secrets, refresh tokens, webhook secrets, and PKCE verifiers on your backend only.</li><li>Use the versioned OAuth API for new apps. The older <code>/core/app-graphql.php</code> and <code>/core/app-api.php</code> routes exist only for compatibility.</li><li>Use only merchant-approved scopes and handle <code>userErrors</code> returned by every mutation.</li></ul></section>
+<section class="card mt-5 p-6"><h2 class="text-xl font-extrabold">6. Verify a payment callback</h2><p class="mt-2 text-sm text-slate-600">A gateway callback is active only after the developer portal verifies it. Use a public HTTPS URL. Localhost, private or metadata IPs, custom ports and redirects are rejected. Changing the URL requires a new verification.</p><p class="mt-3 text-sm text-slate-600">Scora POSTs a random <code>challenge</code> and <code>timestamp</code>, signed in <code>X-Scora-Signature</code> as <code>v1=HMAC-SHA256(timestamp + "." + raw body, app client secret)</code>. Validate it on your backend, then return HTTP 2xx JSON containing the exact challenge and timestamp plus <code>signature</code> calculated as <code>v1=HMAC-SHA256(timestamp + "." + challenge, app client secret)</code>.</p><pre class="mt-4">{"type":"scora.gateway_webhook.verify","challenge":"RANDOM_HEX","timestamp":1735689600}
+{"challenge":"RANDOM_HEX","timestamp":1735689600,"signature":"v1=RESPONSE_HMAC"}</pre><p class="mt-3 text-sm text-slate-600">A verified callback is required before <code>appSubscriptionPaymentConfirm</code> can activate a subscription. This proves control of the endpoint; your backend must still verify the provider's own webhook signature before confirming payment.</p></section>
+</main></body></html>

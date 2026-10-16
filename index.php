@@ -127,49 +127,56 @@ function openTerminalFullscreen() {
                     <?php echo htmlspecialchars($cat['name']); ?>
                 </button>
             <?php endforeach; ?>
+            <button type="button" onclick="quickSyncStoreProducts(this)" class="ml-auto px-3.5 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold transition flex items-center gap-1.5 shrink-0 shadow-sm">
+                <span>🔄 Live Scora Sync</span>
+            </button>
         </div>
+
+        <script>
+        async function quickSyncStoreProducts(btn) {
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = 'Connecting to Scora API...';
+            }
+            try {
+                const res = await fetch('api/sync.php?action=import_catalog');
+                const data = await res.json();
+                if (data.success) {
+                    window.showToast(data.message || 'Store products synced!', 'success');
+                    setTimeout(() => window.location.reload(), 800);
+                } else if (data.need_auth) {
+                    window.showToast('Redirecting to Scora for 1-click authorization...', 'info');
+                    setTimeout(() => {
+                        window.location.href = 'oauth.php?connect=1';
+                    }, 800);
+                } else {
+                    window.showToast(data.error || 'Failed to sync', 'error');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = '🔄 Live Scora Sync';
+                    }
+                }
+            } catch (e) {
+                window.location.href = 'oauth.php?connect=1';
+            }
+        }
+        </script>
 
         <!-- Products Grid -->
         <div id="products-grid" class="flex-1 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 overflow-y-auto pr-1">
             <?php if (empty($products)): ?>
                 <div class="col-span-full py-20 text-center bg-white rounded-2xl border border-slate-200 p-8 shadow-sm my-auto">
                     <h3 class="text-base font-bold text-slate-900 mb-1">Product Catalog is Empty</h3>
-                    <p class="text-xs text-slate-500 max-w-sm mx-auto mb-5">There are no products in your catalog yet. Add your retail items or connect an online store to begin billing.</p>
+                    <p class="text-xs text-slate-500 max-w-sm mx-auto mb-5">There are no products in your catalog yet. Pull your live store items or add manually.</p>
                     <div class="flex flex-wrap items-center justify-center gap-3">
                         <button type="button" onclick="quickSyncStoreProducts(this)" class="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition shadow-sm flex items-center gap-1.5">
-                            <span>🔄 Sync Store Products</span>
+                            <span>🔄 Live Scora Sync</span>
                         </button>
                         <a href="products.php" class="px-5 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition border border-slate-300 shadow-sm">
                             + Add Manually
                         </a>
-                        <a href="settings.php" class="px-5 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition border border-slate-300 shadow-sm">
-                            Settings
-                        </a>
                     </div>
                 </div>
-
-                <script>
-                async function quickSyncStoreProducts(btn) {
-                    btn.disabled = true;
-                    btn.innerText = 'Syncing Store Products...';
-                    try {
-                        const res = await fetch('api/sync.php?action=import_catalog');
-                        const data = await res.json();
-                        if (data.success) {
-                            window.showToast(data.message || 'Store products synced!', 'success');
-                            setTimeout(() => window.location.reload(), 800);
-                        } else {
-                            window.showToast(data.error || 'Failed to sync', 'error');
-                            btn.disabled = false;
-                            btn.innerText = '🔄 Sync Store Products';
-                        }
-                    } catch (e) {
-                        window.showToast('Network error syncing products', 'error');
-                        btn.disabled = false;
-                        btn.innerText = '🔄 Sync Store Products';
-                    }
-                }
-                </script>
             <?php else: ?>
 
                 <?php foreach ($products as $p): ?>

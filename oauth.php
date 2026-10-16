@@ -1,8 +1,7 @@
 <?php
 /**
- * OmniPOS - OAuth 2.0 & Auto-Install Onboarding Handler
- * When merchant installs on Scora, this automatically captures store details,
- * auto-syncs their products, and opens the POS terminal ready to use.
+ * OmniPOS - Scora OAuth 2.0 PKCE & Real-Time Live Catalog Synchronizer
+ * Connects directly to Scora Admin GraphQL API for real-time inventory and catalog syncing
  */
 
 require_once __DIR__ . '/config/database.php';
@@ -10,64 +9,93 @@ require_once __DIR__ . '/config/sync.php';
 
 $appId        = getSetting('cloud_client_id', '11');
 $clientSecret = getSetting('cloud_client_secret', '9fbddbbdeb2f98337ef2b94513af72a0945eaa1a5bcfba5f95437875842de1f9');
+$redirectUri  = 'https://saifali.alwaysdata.net/oauth.php';
 
-$storeDomain = $_GET['store_domain'] ?? $_GET['shop'] ?? '';
-$storeName   = $_GET['store_name'] ?? (!empty($storeDomain) ? ucfirst(explode('.', $storeDomain)[0]) : 'My Online Store');
-$installId   = $_GET['installation_id'] ?? '';
-$code        = $_GET['code'] ?? '';
+$code  = $_GET['code'] ?? '';
+$state = $_GET['state'] ?? '';
 
-// If installation is initiated directly (e.g. from POS website / store URL)
-if (isset($_GET['install']) && !empty($storeDomain)) {
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
-    $host = $_SERVER['HTTP_HOST'] ?? 'saifali.alwaysdata.net';
-    $redirectUri = urlencode($protocol . $host . '/oauth.php');
-    $scopes = urlencode('products:read,products:write,inventory:read,inventory:write,orders:read,orders:write');
-    $authUrl = "https://{$storeDomain}/admin/oauth/authorize?client_id={$appId}&scope={$scopes}&redirect_uri={$redirectUri}";
-    header("Location: {$authUrl}");
+// Step 1: Merchant Connect / Re-Authorize Trigger
+if (isset($_GET['connect']) || isset($_GET['install']) || (empty($code) && !empty($_GET['reauth']))) {
+    // Generate PKCE verifier (32 bytes hex) and S256 challenge
+    $verifier  = bin2hex(random_bytes(32));
+    $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+    $randState = bin2hex(random_bytes(16));
+
+    setSetting('scora_code_verifier', $verifier);
+    setSetting('scora_oauth_state', $randState);
+
+    $scopes = 'store:read,products:read,products:write,collections:read,orders:read,orders:write,customers:read,customers:write,inventory:read,inventory:write';
+    $installationId = getSetting('scora_installation_id', '11');
+
+    $authorizeUrl = "https://scora.com.pk/api/admin/oauth/authorize?" . http_build_query([
+        'client_id'             => $appId,
+        'installation_id'       => $installationId,
+        'redirect_uri'          => $redirectUri,
+        'scope'                 => $scopes,
+        'state'                 => $randState,
+        'code_challenge'        => $challenge,
+        'code_challenge_method' => 'S256'
+    ]);
+
+    header("Location: {$authorizeUrl}");
     exit;
 }
 
-$client = new CloudSyncClient($pdo);
+// Step 2: Handle OAuth Callback from Scora
+if (!empty($code)) {
+    $verifier = getSetting('scora_code_verifier', '');
 
-if (!empty($storeDomain)) {
-    $accessToken = $code;
+    $tokenPayload = [
+        'grant_type'    => 'authorization_code',
+        'client_id'     => (int)$appId,
+        'client_secret' => $clientSecret,
+        'code'          => $code,
+        'redirect_uri'  => $redirectUri,
+        'code_verifier' => $verifier
+    ];
 
-    // Exchange authorization code for access token if code is present
-    if (!empty($code) && !empty($clientSecret)) {
-        $tokenUrl = "https://{$storeDomain}/admin/oauth/access_token";
-        $ch = curl_init($tokenUrl);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => http_build_query([
-                'client_id'     => $appId,
-                'client_secret' => $clientSecret,
-                'code'          => $code
-            ]),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 8,
-            CURLOPT_SSL_VERIFYPEER => false
-        ]);
-        $resp = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+    $ch = curl_init('https://scora.com.pk/api/admin/oauth/token');
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode($tokenPayload),
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            'Accept: application/json'
+        ],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 12,
+        CURLOPT_SSL_VERIFYPEER => false
+    ]);
 
-        if ($httpCode === 200 && $resp) {
-            $data = json_decode($resp, true);
-            if (!empty($data['access_token'])) {
-                $accessToken = $data['access_token'];
-            }
+    $resp = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $tokenData = json_decode($resp, true);
+
+    if ($httpCode === 200 && !empty($tokenData['access_token'])) {
+        $token = $tokenData['access_token'];
+        setSetting('cloud_access_token', $token);
+        setSetting('cloud_local_mode', '0');
+        setSetting('cloud_store_domain', 'scora.com.pk');
+        if (!empty($tokenData['refresh_token'])) {
+            setSetting('cloud_refresh_token', $tokenData['refresh_token']);
         }
+
+        // Pull full live store catalog via GraphQL
+        $client = new CloudSyncClient($pdo);
+        $syncRes = $client->importStoreProducts();
+
+        header('X-Frame-Options: ALLOWALL');
+        header("Content-Security-Policy: frame-ancestors 'self' https://*.scora.com.pk https://scora.com.pk http://localhost:*");
+        header("Location: index.php?live_synced=1&count=" . ($syncRes['imported'] ?? 0));
+        exit;
+    } else {
+        $errMsg = $tokenData['error_description'] ?? $tokenData['error'] ?? $resp ?? 'Token exchange failed';
+        setSetting('last_oauth_error', $errMsg);
+        header("Location: index.php?oauth_error=" . urlencode($errMsg));
+        exit;
     }
-
-    // 1. Auto-onboard the store and pull products automatically
-    $client->autoSyncStore($storeName, $storeDomain, $accessToken);
-
-    // 2. Allow iframe embedding inside Scora Admin
-    header('X-Frame-Options: ALLOWALL');
-    header("Content-Security-Policy: frame-ancestors 'self' https://*.scora.com.pk https://scora.com.pk http://localhost:*");
-
-    header('Location: index.php?auto_synced=1');
-    exit;
 }
 
 // Fallback direct open
@@ -75,4 +103,3 @@ header('X-Frame-Options: ALLOWALL');
 header("Content-Security-Policy: frame-ancestors 'self' https://*.scora.com.pk https://scora.com.pk http://localhost:*");
 header('Location: index.php');
 exit;
-
