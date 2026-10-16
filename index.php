@@ -85,7 +85,7 @@ $taxRate = getSetting('tax_rate', '0');
 
 <script>
 function openTerminalFullscreen() {
-    var url = window.location.protocol + '//' + window.location.host + window.location.pathname;
+    var url = window.location.protocol + '//' + window.location.host + window.location.pathname + window.location.search;
     window.open(url, '_blank');
 }
 </script>
@@ -135,15 +135,41 @@ function openTerminalFullscreen() {
                 <div class="col-span-full py-20 text-center bg-white rounded-2xl border border-slate-200 p-8 shadow-sm my-auto">
                     <h3 class="text-base font-bold text-slate-900 mb-1">Product Catalog is Empty</h3>
                     <p class="text-xs text-slate-500 max-w-sm mx-auto mb-5">There are no products in your catalog yet. Add your retail items or connect an online store to begin billing.</p>
-                    <div class="flex items-center justify-center gap-3">
-                        <a href="products.php" class="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition shadow-sm">
-                            + Add Product to Inventory
+                    <div class="flex flex-wrap items-center justify-center gap-3">
+                        <button type="button" onclick="quickSyncStoreProducts(this)" class="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition shadow-sm flex items-center gap-1.5">
+                            <span>🔄 Sync Store Products</span>
+                        </button>
+                        <a href="products.php" class="px-5 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition border border-slate-300 shadow-sm">
+                            + Add Manually
                         </a>
                         <a href="settings.php" class="px-5 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition border border-slate-300 shadow-sm">
-                            Store Connection Settings
+                            Settings
                         </a>
                     </div>
                 </div>
+
+                <script>
+                async function quickSyncStoreProducts(btn) {
+                    btn.disabled = true;
+                    btn.innerText = 'Syncing Store Products...';
+                    try {
+                        const res = await fetch('api/sync.php?action=import_catalog');
+                        const data = await res.json();
+                        if (data.success) {
+                            window.showToast(data.message || 'Store products synced!', 'success');
+                            setTimeout(() => window.location.reload(), 800);
+                        } else {
+                            window.showToast(data.error || 'Failed to sync', 'error');
+                            btn.disabled = false;
+                            btn.innerText = '🔄 Sync Store Products';
+                        }
+                    } catch (e) {
+                        window.showToast('Network error syncing products', 'error');
+                        btn.disabled = false;
+                        btn.innerText = '🔄 Sync Store Products';
+                    }
+                }
+                </script>
             <?php else: ?>
 
                 <?php foreach ($products as $p): ?>
