@@ -15,9 +15,23 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $rawPayload = file_get_contents('php://input');
-$data = json_decode($rawPayload, true);
-
 $client = new CloudSyncClient($pdo);
+
+// Scora HMAC-SHA256 Signature Verification
+$clientSecret = getSetting('cloud_client_secret', '9fbddbbdeb2f98337ef2b94513af72a0945eaa1a5bcfba5f95437875842de1f9');
+$scoraSignature = $_SERVER['HTTP_X_SCORA_HMAC_SHA256'] ?? $_SERVER['HTTP_X_SCORA_SIGNATURE'] ?? '';
+
+if (!empty($scoraSignature) && !empty($clientSecret) && !empty($rawPayload)) {
+    $calcBase64 = base64_encode(hash_hmac('sha256', $rawPayload, $clientSecret, true));
+    $calcHex    = hash_hmac('sha256', $rawPayload, $clientSecret);
+    if (!hash_equals($calcBase64, $scoraSignature) && !hash_equals($calcHex, $scoraSignature)) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Invalid webhook signature']);
+        exit;
+    }
+}
+
+$data = json_decode($rawPayload, true);
 
 // Scora Challenge / Webhook Verification Handshake
 if (isset($data['type']) && $data['type'] === 'scora.gateway_webhook.verify') {

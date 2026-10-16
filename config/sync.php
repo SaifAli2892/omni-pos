@@ -22,6 +22,8 @@ class CloudSyncClient {
         $this->apiVersion   = getSetting('cloud_api_version', '2026-08');
         $this->storeDomain  = trim(getSetting('cloud_store_domain', ''));
         $this->accessToken  = trim(getSetting('cloud_access_token', ''));
+        $this->clientId     = getSetting('cloud_client_id', '11');
+        $this->clientSecret = getSetting('cloud_client_secret', '9fbddbbdeb2f98337ef2b94513af72a0945eaa1a5bcfba5f95437875842de1f9');
         $this->isLocalMode = (getSetting('cloud_local_mode', '1') === '1' || empty($this->accessToken));
     }
 

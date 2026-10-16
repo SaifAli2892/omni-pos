@@ -4,6 +4,24 @@
  * Handles PDO Database connection with automatic database creation
  */
 
+// Load .env file if available
+$envFile = dirname(__DIR__) . '/.env';
+if (file_exists($envFile)) {
+    $envLines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($envLines as $line) {
+        $line = trim($line);
+        if ($line === '' || strpos($line, '#') === 0) continue;
+        if (strpos($line, '=') !== false) {
+            list($key, $val) = explode('=', $line, 2);
+            $key = trim($key);
+            $val = trim($val);
+            if (!isset($_SERVER[$key])) $_SERVER[$key] = $val;
+            if (!isset($_ENV[$key])) $_ENV[$key] = $val;
+            putenv("{$key}={$val}");
+        }
+    }
+}
+
 $envHost = $_SERVER['DB_HOST'] ?? $_ENV['DB_HOST'] ?? getenv('DB_HOST');
 $envPort = $_SERVER['DB_PORT'] ?? $_ENV['DB_PORT'] ?? getenv('DB_PORT');
 $envUser = $_SERVER['DB_USER'] ?? $_ENV['DB_USER'] ?? getenv('DB_USER');
@@ -49,6 +67,32 @@ $pdo = getDBConnection(true);
 // Helper function to safely fetch settings
 function getSetting($key, $default = '') {
     global $pdo;
+
+    // Check environment variables first
+    $envKey = strtoupper($key);
+    $envVal = $_SERVER[$envKey] ?? $_ENV[$envKey] ?? getenv($envKey);
+    if ($envVal !== false && $envVal !== null && $envVal !== '') {
+        return $envVal;
+    }
+
+    // Check Scora aliases
+    if ($key === 'cloud_client_id') {
+        $v = $_SERVER['SCORA_APP_ID'] ?? $_ENV['SCORA_APP_ID'] ?? getenv('SCORA_APP_ID');
+        if (!empty($v)) return $v;
+    }
+    if ($key === 'cloud_client_secret') {
+        $v = $_SERVER['SCORA_CLIENT_SECRET'] ?? $_ENV['SCORA_CLIENT_SECRET'] ?? getenv('SCORA_CLIENT_SECRET');
+        if (!empty($v)) return $v;
+    }
+    if ($key === 'cloud_api_version') {
+        $v = $_SERVER['SCORA_API_VERSION'] ?? $_ENV['SCORA_API_VERSION'] ?? getenv('SCORA_API_VERSION');
+        if (!empty($v)) return $v;
+    }
+    if ($key === 'cloud_api_domain') {
+        $v = $_SERVER['SCORA_API_DOMAIN'] ?? $_ENV['SCORA_API_DOMAIN'] ?? getenv('SCORA_API_DOMAIN');
+        if (!empty($v)) return $v;
+    }
+
     if (!$pdo) return $default;
     try {
         $stmt = $pdo->prepare("SELECT `value` FROM settings WHERE `key` = ? LIMIT 1");

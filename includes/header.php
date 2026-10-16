@@ -10,6 +10,10 @@ $cloudToken  = getSetting('cloud_access_token', '');
 $currency    = getSetting('currency_symbol', 'Rs.');
 $user        = currentUser();
 $currentPage = basename($_SERVER['PHP_SELF']);
+
+// Allow iframe embedding inside Scora Admin and POS surfaces
+header('X-Frame-Options: ALLOWALL');
+header("Content-Security-Policy: frame-ancestors 'self' https://*.scora.com.pk https://scora.com.pk http://localhost:*");
 ?>
 <!DOCTYPE html>
 <html lang="en">
