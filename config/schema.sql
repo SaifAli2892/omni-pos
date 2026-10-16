@@ -1,6 +1,4 @@
 -- OmniPOS Database Schema
-CREATE DATABASE IF NOT EXISTS `omni_pos` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `omni_pos`;
 
 -- 1. Settings Table
 CREATE TABLE IF NOT EXISTS `settings` (
