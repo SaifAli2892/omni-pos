@@ -1,0 +1,258 @@
+<?php
+/**
+ * OmniPOS - Auto-Sync & Cloud Store Engine
+ * Handles 1-Click store onboarding, automatic catalog pulling, and background stock sync
+ */
+
+require_once __DIR__ . '/database.php';
+
+class CloudSyncClient {
+    private $apiDomain;
+    private $apiVersion;
+    private $storeDomain;
+    private $accessToken;
+    private $pdo;
+    private $isLocalMode;
+
+    public function __construct($pdoInstance = null) {
+        global $pdo;
+        $this->pdo = $pdoInstance ?: $pdo;
+        
+        $this->apiDomain   = rtrim(getSetting('cloud_api_domain', 'https://scora.com.pk'), '/');
+        $this->apiVersion   = getSetting('cloud_api_version', '2026-08');
+        $this->storeDomain  = trim(getSetting('cloud_store_domain', ''));
+        $this->accessToken  = trim(getSetting('cloud_access_token', ''));
+        $this->isLocalMode = (getSetting('cloud_local_mode', '1') === '1' || empty($this->accessToken));
+    }
+
+    public function isConfigured() {
+        return !empty($this->storeDomain);
+    }
+
+    public function isLocal() {
+        return $this->isLocalMode;
+    }
+
+    /**
+     * 1-Click Auto Store Onboarding & Sync
+     * Called automatically when app installs on any store
+     */
+    public function autoSyncStore($storeName, $storeDomain, $token = null) {
+        if (!empty($token)) {
+            setSetting('cloud_access_token', $token);
+            $this->accessToken = $token;
+            $this->isLocalMode = false;
+            setSetting('cloud_local_mode', '0');
+        }
+
+        setSetting('store_name', $storeName);
+        setSetting('cloud_store_domain', $storeDomain);
+        setSetting('cloud_auto_sync', '1');
+        setSetting('cloud_last_sync', date('d-M-Y h:i A'));
+
+        // Only import if live token exists
+        if (!empty($this->accessToken) && !$this->isLocalMode) {
+            return $this->importStoreProducts();
+        }
+
+        return [
+            'success' => true,
+            'imported' => 0,
+            'message' => "Store configuration saved."
+        ];
+    }
+
+
+    /**
+     * Automatically Import Store Products into Local Database
+     */
+    public function importStoreProducts() {
+        $result = $this->fetchProducts(50);
+        if (!$result['success']) {
+            return $result;
+        }
+
+        $nodes = $result['data']['products']['nodes'] ?? [];
+        $imported = 0;
+
+        try {
+            $insertStmt = $this->pdo->prepare("
+                INSERT INTO products (title, sku, selling_price, stock_qty, scora_product_id, scora_variant_id, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
+                ON DUPLICATE KEY UPDATE 
+                    title = VALUES(title),
+                    selling_price = VALUES(selling_price),
+                    stock_qty = VALUES(stock_qty),
+                    scora_variant_id = VALUES(scora_variant_id),
+                    is_active = 1
+            ");
+
+            foreach ($nodes as $prod) {
+                $cloudId = $prod['id'];
+                $title = $prod['title'];
+                $price = (float)($prod['price'] ?? 0);
+                $totalInventory = (int)($prod['totalInventory'] ?? 10);
+                $variants = $prod['variants']['nodes'] ?? [];
+
+                if (!empty($variants)) {
+                    foreach ($variants as $var) {
+                        $varId = $var['id'];
+                        $varSku = $var['sku'] ?? '';
+                        $varPrice = (float)($var['price'] ?? $price);
+                        $varQty = (int)($var['inventoryQuantity'] ?? $totalInventory);
+
+                        $insertStmt->execute([
+                            $title . ($var['title'] !== 'Default Title' ? " ({$var['title']})" : ''),
+                            $varSku,
+                            $varPrice,
+                            $varQty,
+                            $cloudId,
+                            $varId
+                        ]);
+                        $imported++;
+                    }
+                } else {
+                    $insertStmt->execute([
+                        $title,
+                        'SKU-' . substr(md5($cloudId), 0, 6),
+                        $price,
+                        $totalInventory,
+                        $cloudId,
+                        null
+                    ]);
+                    $imported++;
+                }
+            }
+
+            setSetting('cloud_last_sync', date('d-M-Y h:i A'));
+            $this->logEvent('auto_sync', "Auto-synced {$imported} products from store {$this->storeDomain}", 'success');
+
+            return [
+                'success' => true,
+                'imported' => $imported,
+                'message' => "Store connected! Automatically synced {$imported} products."
+            ];
+        } catch (Exception $e) {
+            $this->logEvent('sync_error', $e->getMessage(), 'error');
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Fetch products from store
+     */
+    public function fetchProducts($limit = 50) {
+        if (empty($this->storeDomain)) {
+            return [
+                'success' => false,
+                'error' => 'No online store domain linked. Please link your store first.'
+            ];
+        }
+
+        if (empty($this->accessToken)) {
+            return [
+                'success' => false,
+                'error' => 'Store is not authenticated. Please authenticate via OAuth to import products.'
+            ];
+        }
+
+        if ($this->isLocalMode) {
+            return [
+                'success' => false,
+                'error' => 'Local Safe Mode is active (no live cloud API calls permitted). Add products manually in Inventory tab.'
+            ];
+        }
+
+        // Live GraphQL query when store provides live OAuth token
+        $query = '
+            query GetStoreCatalog($limit: Int!) {
+                products(first: $limit) {
+                    nodes {
+                        id
+                        title
+                        price
+                        totalInventory
+                        variants(first: 5) {
+                            nodes {
+                                id
+                                title
+                                sku
+                                price
+                                inventoryQuantity
+                            }
+                        }
+                    }
+                }
+            }
+        ';
+        return $this->query($query, ['limit' => (int)$limit]);
+    }
+
+
+    /**
+     * Real-time stock adjustment on counter sale
+     */
+    public function adjustInventory($cloudProductId, $cloudVariantId, $delta = -1) {
+        if ($this->isLocalMode) {
+            $this->logEvent('stock_deduct', "Auto-deducted {$delta} stock for item {$cloudProductId}", 'success');
+            return ['success' => true];
+        }
+
+        $mutation = '
+            mutation AdjustInventoryQuantity($variantId: ID!, $delta: Int!) {
+                inventoryAdjustQuantity(input: { variantId: $variantId, availableDelta: $delta }) {
+                    inventoryLevel { id available }
+                    userErrors { field message }
+                }
+            }
+        ';
+        return $this->query($mutation, [
+            'variantId' => $cloudVariantId ?: $cloudProductId,
+            'delta'     => (int)$delta
+        ]);
+    }
+
+    private function query($graphQLQuery, $variables = []) {
+        if ($this->isLocalMode) return ['success' => true];
+
+        $endpoint = "{$this->apiDomain}/api/admin/{$this->apiVersion}/graphql";
+        $headers = [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $this->accessToken,
+            'Idempotency-Key: ' . uniqid('pos_', true)
+        ];
+
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $endpoint,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode(['query' => $graphQLQuery, 'variables' => (object)$variables]),
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 8
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response === false) {
+            return ['success' => false, 'error' => 'Network timeout'];
+        }
+
+        $decoded = json_decode($response, true);
+        if ($httpCode >= 400 || !empty($decoded['errors'])) {
+            return ['success' => false, 'error' => $decoded['errors'][0]['message'] ?? 'Query error'];
+        }
+
+        return ['success' => true, 'data' => $decoded['data'] ?? []];
+    }
+
+    public function logEvent($event, $details, $status = 'info') {
+        if (!$this->pdo) return;
+        try {
+            $stmt = $this->pdo->prepare("INSERT INTO sync_logs (`event`, `details`, `status`) VALUES (?, ?, ?)");
+            $stmt->execute([$event, is_string($details) ? $details : json_encode($details), $status]);
+        } catch (Exception $e) {}
+    }
+}

@@ -1,0 +1,14 @@
+# Environment & local settings
+.env
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+scratch/
+tmp/
+clean.sql
+clean_db.php
