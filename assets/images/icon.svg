@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090d16"/>
+      <stop offset="50%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+
+    <!-- Emerald Primary Gradient -->
+    <linearGradient id="emerald-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="50%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+
+    <!-- Scanner Laser Glow -->
+    <linearGradient id="laser-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.1"/>
+      <stop offset="50%" stop-color="#34d399" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.1"/>
+    </linearGradient>
+
+    <!-- Drop Shadow for Geometric Core -->
+    <filter id="core-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#059669" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle App Icon Base -->
+  <rect width="512" height="512" rx="118" fill="url(#bg-grad)"/>
+  <rect width="510" height="510" x="1" y="1" rx="117" fill="none" stroke="#334155" stroke-width="2" stroke-opacity="0.4"/>
+
+  <!-- Geometric Symbol Group -->
+  <g transform="translate(256, 256)" filter="url(#core-shadow)">
+    
+    <!-- Outer Octagonal Ring / POS Frame -->
+    <path d="M -110,-140 L 110,-140 L 150,-100 L 150,60 L 110,100 L -110,100 L -150,60 L -150,-100 Z" 
+          fill="none" 
+          stroke="#1e293b" 
+          stroke-width="18" 
+          stroke-linejoin="round"/>
+
+    <!-- Dynamic Emerald Geometric Shield (The "O" and Scanner Portal) -->
+    <path d="M -85,-110 L 85,-110 C 120,-110 135,-85 135,-50 L 135,30 C 135,65 120,85 85,85 L -85,85 C -120,85 -135,65 -135,30 L -135,-50 C -135,-85 -120,-110 -85,-110 Z" 
+          fill="none" 
+          stroke="url(#emerald-grad)" 
+          stroke-width="26" 
+          stroke-linejoin="round"/>
+
+    <!-- Barcode Lattice (3 Precision Vertical Bars) -->
+    <rect x="-60" y="-55" width="16" height="85" rx="8" fill="url(#emerald-grad)"/>
+    <rect x="-18" y="-45" width="22" height="75" rx="10" fill="#f8fafc"/>
+    <rect x="28" y="-55" width="14" height="85" rx="7" fill="url(#emerald-grad)"/>
+    <rect x="58" y="-40" width="18" height="60" rx="8" fill="#e2e8f0"/>
+
+    <!-- High-Tech Horizontal Scanner Laser Beam -->
+    <line x1="-140" y1="-5" x2="140" y2="-5" stroke="url(#laser-grad)" stroke-width="6" stroke-linecap="round"/>
+    
+    <!-- Real-time Pulse Center Dot -->
+    <circle cx="0" cy="-5" r="5" fill="#ffffff"/>
+
+    <!-- Bottom Stand / Retail Terminal Pedestal -->
+    <path d="M -55,120 L 55,120 L 75,150 L -75,150 Z" fill="#334155" opacity="0.9"/>
+    <rect x="-85" y="150" width="170" height="14" rx="7" fill="url(#emerald-grad)"/>
+  </g>
+</svg>
