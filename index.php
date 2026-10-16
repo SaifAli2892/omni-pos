@@ -133,7 +133,17 @@ function openTerminalFullscreen() {
         </div>
 
         <script>
+        window.hasScoraToken = <?php echo !empty($cloudToken) ? 'true' : 'false'; ?>;
+
         async function quickSyncStoreProducts(btn) {
+            if (!window.hasScoraToken) {
+                if (window.showToast) window.showToast('Redirecting to Scora for 1-click authorization...', 'info');
+                setTimeout(() => {
+                    window.location.href = 'oauth.php?connect=1';
+                }, 400);
+                return;
+            }
+
             if (btn) {
                 btn.disabled = true;
                 btn.innerText = 'Connecting to Scora API...';
@@ -145,10 +155,10 @@ function openTerminalFullscreen() {
                     window.showToast(data.message || 'Store products synced!', 'success');
                     setTimeout(() => window.location.reload(), 800);
                 } else if (data.need_auth) {
-                    window.showToast('Redirecting to Scora for 1-click authorization...', 'info');
+                    window.showToast('Connecting Scora store...', 'info');
                     setTimeout(() => {
                         window.location.href = 'oauth.php?connect=1';
-                    }, 800);
+                    }, 500);
                 } else {
                     window.showToast(data.error || 'Failed to sync', 'error');
                     if (btn) {
