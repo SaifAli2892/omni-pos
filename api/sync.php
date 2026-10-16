@@ -45,4 +45,10 @@ if ($action === 'import_catalog') {
     exit;
 }
 
+if ($action === 'cleanup_duplicates') {
+    $res = $client->cleanupDuplicates();
+    echo json_encode($res);
+    exit;
+}
+
 echo json_encode(['success' => false, 'error' => 'Invalid action']);

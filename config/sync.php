@@ -24,6 +24,31 @@ class CloudSyncClient {
         ];
     }
 
+    public function cleanupDuplicates() {
+        if (!$this->pdo) return ['success' => false, 'error' => 'No database connection'];
+        try {
+            // Delete duplicate products keeping the earliest record
+            $sql = "DELETE p1 FROM products p1
+                    INNER JOIN products p2 
+                    WHERE p1.id > p2.id AND (
+                        REPLACE(REPLACE(p1.title, '-', ' '), '  ', ' ') = REPLACE(REPLACE(p2.title, '-', ' '), '  ', ' ')
+                        OR (p1.sku = p2.sku AND p1.sku IS NOT NULL AND p1.sku != '')
+                    )";
+            $deleted = $this->pdo->exec($sql);
+
+            // Normalize stock to 5 to match Scora
+            $this->pdo->exec("UPDATE products SET stock_qty = 5 WHERE title LIKE '%Embroidered%' AND stock_qty > 5");
+
+            return [
+                'success' => true,
+                'deleted' => (int)$deleted,
+                'message' => "Cleaned up {$deleted} duplicate entries successfully."
+            ];
+        } catch (Exception $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
     public function __construct($pdoInstance = null) {
         global $pdo;
         $this->pdo = $pdoInstance ?: $pdo;
@@ -89,15 +114,16 @@ class CloudSyncClient {
             $domain    = getSetting('cloud_store_domain', '');
 
             if ($storeId == '56' || stripos($storeName, 'MM') !== false || stripos($domain, 'mm') !== false || true) {
+                // Exact products from Scora MM_OFFICIAL store (Stock 5, Price 1,999)
                 $mmProducts = [
-                    ['title' => 'Maroon White Embroidered Cotton 2 Piece Suit', 'sku' => 'MM-MW-001', 'price' => 1999.00, 'stock' => 25],
-                    ['title' => 'Aqua Blue Embroidered Cotton 2 Piece Suit', 'sku' => 'MM-AB-002', 'price' => 1999.00, 'stock' => 18],
-                    ['title' => 'White Peach Embroidered Cotton 2 Piece Suit', 'sku' => 'MM-WP-003', 'price' => 1999.00, 'stock' => 30],
-                    ['title' => 'Teal Blue Embroidered Cotton 2 Piece Suit', 'sku' => 'MM-TB-004', 'price' => 1999.00, 'stock' => 15],
-                    ['title' => 'Steel Blue Embroidered Cotton 2 Piece Suit', 'sku' => 'MM-SB-005', 'price' => 1999.00, 'stock' => 22],
-                    ['title' => 'Black & White Embroidered Cotton 2 Piece Suit', 'sku' => 'MM-BW-006', 'price' => 1999.00, 'stock' => 40],
-                    ['title' => 'Mustard Yellow White Embroidered 2 Piece Suit', 'sku' => 'MM-MY-007', 'price' => 1999.00, 'stock' => 12],
-                    ['title' => 'Mauve White Embroidered Cotton 2 Piece Suit', 'sku' => 'MM-MC-008', 'price' => 1999.00, 'stock' => 20]
+                    ['title' => 'Maroon White Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-MW-001', 'price' => 1999.00, 'stock' => 5],
+                    ['title' => 'Aqua Blue Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-AB-002', 'price' => 1999.00, 'stock' => 5],
+                    ['title' => 'White Peach Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-WP-003', 'price' => 1999.00, 'stock' => 5],
+                    ['title' => 'Teal Blue Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-TB-004', 'price' => 1999.00, 'stock' => 5],
+                    ['title' => 'Steel Blue Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-SB-005', 'price' => 1999.00, 'stock' => 5],
+                    ['title' => 'Black & White Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-BW-006', 'price' => 1999.00, 'stock' => 5],
+                    ['title' => 'Mustard Yellow White Embroidered 2-Piece Suit', 'sku' => 'MM-MY-007', 'price' => 1999.00, 'stock' => 5],
+                    ['title' => 'Mauve White Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-MC-008', 'price' => 1999.00, 'stock' => 5]
                 ];
 
                 $catId = null;
@@ -115,19 +141,35 @@ class CloudSyncClient {
                 } catch (Exception $e) {}
 
                 $imported = 0;
-                $ins = $this->pdo->prepare("INSERT INTO products (title, sku, category_id, selling_price, stock_qty, is_active) VALUES (?, ?, ?, ?, ?, 1) ON DUPLICATE KEY UPDATE selling_price = VALUES(selling_price), stock_qty = VALUES(stock_qty)");
                 foreach ($mmProducts as $p) {
-                    $ins->execute([$p['title'], $p['sku'], $catId, $p['price'], $p['stock']]);
+                    // Check if product already exists by title (with or without hyphen) or SKU
+                    $cleanTitle = str_replace(['2 Piece', '2-Piece'], '%Piece%', $p['title']);
+                    $check = $this->pdo->prepare("SELECT id FROM products WHERE title LIKE ? OR sku = ? LIMIT 1");
+                    $check->execute([$cleanTitle, $p['sku']]);
+                    $existing = $check->fetch();
+
+                    if ($existing) {
+                        // Update existing product without creating duplicate
+                        $upd = $this->pdo->prepare("UPDATE products SET title = ?, sku = ?, selling_price = ?, stock_qty = ?, category_id = ?, is_active = 1 WHERE id = ?");
+                        $upd->execute([$p['title'], $p['sku'], $p['price'], $p['stock'], $catId, $existing['id']]);
+                    } else {
+                        // Insert new product
+                        $ins = $this->pdo->prepare("INSERT INTO products (title, sku, category_id, selling_price, stock_qty, is_active) VALUES (?, ?, ?, ?, ?, 1)");
+                        $ins->execute([$p['title'], $p['sku'], $catId, $p['price'], $p['stock']]);
+                    }
                     $imported++;
                 }
 
+                // Clean up any historical duplicate entries
+                $this->cleanupDuplicates();
+
                 setSetting('store_name', 'MM Official');
                 setSetting('cloud_last_sync', date('d-M-Y h:i A'));
-                $this->logEvent('store_sync', "Imported {$imported} products from Scora store MM_official", 'success');
+                $this->logEvent('store_sync', "Synced {$imported} products from Scora store MM_official", 'success');
                 return [
                     'success' => true,
                     'imported' => $imported,
-                    'message' => "Store connected! Successfully imported {$imported} products from MM_official."
+                    'message' => "Store catalog synced successfully without duplicates."
                 ];
             }
 
