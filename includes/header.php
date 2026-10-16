@@ -11,6 +11,22 @@ $currency    = getSetting('currency_symbol', 'Rs.');
 $user        = currentUser();
 $currentPage = basename($_SERVER['PHP_SELF']);
 
+// Parse Scora POS context if opened from Scora Admin
+if (!empty($_GET['scora_context'])) {
+    $parts = explode('.', $_GET['scora_context']);
+    if (!empty($parts[0])) {
+        $decoded = base64_decode(str_pad(strtr($parts[0], '-_', '+/'), strlen($parts[0]) % 4, '=', STR_PAD_RIGHT));
+        $ctx = json_decode($decoded, true);
+        if ($ctx && !empty($ctx['store_id'])) {
+            setSetting('scora_store_id', (string)$ctx['store_id']);
+            setSetting('scora_installation_id', (string)($ctx['installation_id'] ?? ''));
+            if (getSetting('store_name', '') === 'Omni Retail Mart' || getSetting('store_name', '') === '') {
+                setSetting('store_name', 'MM Official POS');
+            }
+        }
+    }
+}
+
 // Allow iframe embedding inside Scora Admin and POS surfaces
 header('X-Frame-Options: ALLOWALL');
 header("Content-Security-Policy: frame-ancestors 'self' https://*.scora.com.pk https://scora.com.pk http://localhost:*");
