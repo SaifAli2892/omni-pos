@@ -67,11 +67,37 @@ header("Content-Security-Policy: frame-ancestors 'self' https://*.scora.com.pk h
             }
         }
     </script>
+    <script>
+        // Check if embedded in Scora POS Smart Grid tile
+        (function() {
+            var inIframe = false;
+            try { inIframe = window.self !== window.top; } catch (e) { inIframe = true; }
+            if (inIframe && (window.innerWidth < 650 || window.innerHeight < 450)) {
+                document.documentElement.classList.add('is-tile-mode');
+            }
+        })();
+    </script>
+    <style>
+        .is-tile-mode #main-top-navbar,
+        .is-tile-mode #desktop-terminal-container {
+            display: none !important;
+        }
+        .is-tile-mode #tile-mode-container {
+            display: flex !important;
+        }
+        .is-tile-mode body {
+            background: #ffffff !important;
+            overflow: hidden !important;
+            height: 100vh !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+    </style>
 </head>
 <body class="bg-slate-50 text-slate-900 font-sans min-h-screen flex flex-col antialiased">
 
     <!-- Top Navigation Header -->
-    <header class="bg-white border-b border-slate-200 sticky top-0 z-40">
+    <header id="main-top-navbar" class="bg-white border-b border-slate-200 sticky top-0 z-40">
         <div class="px-6 py-2.5 flex items-center justify-between gap-4 w-full">
             
             <!-- Left: Brand Logo & Title -->

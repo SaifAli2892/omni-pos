@@ -46,7 +46,52 @@ $taxRate = getSetting('tax_rate', '0');
     };
 </script>
 
-<div class="flex-1 flex flex-col lg:flex-row overflow-hidden w-full h-[calc(100vh-65px)]">
+<!-- TILE MODE WIDGET (Renders exclusively inside Scora POS Smart Grid tile) -->
+<div id="tile-mode-container" class="hidden h-screen w-full p-4 flex-col justify-between bg-white text-slate-900 select-none box-border">
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-xl bg-emerald-600 text-white font-black flex items-center justify-center text-xs shadow-sm">
+                ⚡
+            </div>
+            <div>
+                <div class="font-extrabold text-xs text-slate-950 tracking-tight leading-tight">OmniPOS Terminal</div>
+                <div class="text-[10px] text-emerald-700 font-bold flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>System Ready</span>
+                </div>
+            </div>
+        </div>
+        <span class="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">v1.0</span>
+    </div>
+
+    <div class="my-auto py-1">
+        <button 
+            type="button" 
+            onclick="openTerminalFullscreen()" 
+            class="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition"
+        >
+            <span>Launch POS Terminal</span>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+        </button>
+    </div>
+
+    <div class="flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-100 pt-1.5">
+        <span class="truncate">MM_official</span>
+        <button type="button" onclick="openTerminalFullscreen()" class="text-emerald-700 font-bold hover:underline shrink-0">
+            Open Fullscreen &rarr;
+        </button>
+    </div>
+</div>
+
+<script>
+function openTerminalFullscreen() {
+    var url = window.location.protocol + '//' + window.location.host + window.location.pathname;
+    window.open(url, '_blank');
+}
+</script>
+
+<!-- FULL DESKTOP TERMINAL -->
+<div id="desktop-terminal-container" class="flex-1 flex flex-col lg:flex-row overflow-hidden w-full h-[calc(100vh-65px)]">
 
     <!-- LEFT COLUMN: Product Catalog & Search -->
     <div class="flex-1 flex flex-col bg-slate-50 border-r border-slate-200 p-6 overflow-y-auto">
