@@ -80,7 +80,8 @@ if ($action === 'wipe_store') {
 
 if ($action === 'test_query') {
     $q = $_POST['q'] ?? $_GET['q'] ?? 'query { products(first: 2) { nodes { id title } } }';
-    $res = $client->query($q);
+    $vars = !empty($_POST['variables']) ? (is_array($_POST['variables']) ? $_POST['variables'] : json_decode($_POST['variables'], true)) : [];
+    $res = $client->query($q, $vars ?: []);
     echo json_encode($res);
     exit;
 }

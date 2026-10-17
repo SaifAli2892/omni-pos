@@ -381,8 +381,106 @@ window.closeReceiptModal = function() {
 };
 
 window.printCurrentReceipt = function() {
-    window.print();
+    const modalPreview = document.getElementById('modal-receipt-preview');
+    const thermalReceipt = document.getElementById('thermal-receipt');
+    const receiptHtml = (modalPreview && modalPreview.innerHTML.trim().length > 10) 
+        ? modalPreview.innerHTML 
+        : (thermalReceipt ? thermalReceipt.innerHTML : '');
+
+    if (!receiptHtml) {
+        window.print();
+        return;
+    }
+
+    const fullPrintDoc = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Receipt Print</title>
+    <style>
+        @page {
+            size: 80mm auto;
+            margin: 0mm;
+        }
+        @media print {
+            html, body {
+                width: 80mm;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+        }
+        body {
+            font-family: 'Courier New', Courier, 'JetBrains Mono', monospace;
+            font-size: 12px;
+            line-height: 1.35;
+            color: #000000;
+            background: #ffffff;
+            width: 76mm;
+            margin: 0 auto;
+            padding: 4mm 3mm;
+            box-sizing: border-box;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { font-size: 11px; }
+        * { box-sizing: border-box; }
+    </style>
+</head>
+<body>
+    ${receiptHtml}
+</body>
+</html>`;
+
+    // Strategy 1: Dedicated clean print iframe (does not trigger popup blockers)
+    let printFrame = document.getElementById('omni-pos-print-frame');
+    if (!printFrame) {
+        printFrame = document.createElement('iframe');
+        printFrame.id = 'omni-pos-print-frame';
+        printFrame.style.position = 'fixed';
+        printFrame.style.right = '0';
+        printFrame.style.bottom = '0';
+        printFrame.style.width = '0';
+        printFrame.style.height = '0';
+        printFrame.style.border = '0';
+        printFrame.style.visibility = 'hidden';
+        document.body.appendChild(printFrame);
+    }
+
+    try {
+        const frameDoc = printFrame.contentWindow.document;
+        frameDoc.open();
+        frameDoc.write(fullPrintDoc);
+        frameDoc.close();
+
+        setTimeout(() => {
+            try {
+                printFrame.contentWindow.focus();
+                printFrame.contentWindow.print();
+            } catch (err) {
+                fallbackPrintWindow(fullPrintDoc);
+            }
+        }, 250);
+    } catch (e) {
+        fallbackPrintWindow(fullPrintDoc);
+    }
 };
+
+function fallbackPrintWindow(html) {
+    const win = window.open('', '_blank', 'width=420,height=650');
+    if (win) {
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        setTimeout(() => {
+            win.print();
+        }, 300);
+    } else {
+        const el = document.getElementById('thermal-receipt');
+        if (el) el.classList.remove('hidden');
+        window.print();
+        if (el) el.classList.add('hidden');
+    }
+}
 
 // Universal Barcode Scan Processor
 async function handleBarcodeScanned(code) {

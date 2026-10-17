@@ -552,7 +552,13 @@ class CloudSyncClient {
         }
 
         if ($httpCode >= 400 || !empty($decoded['errors'])) {
-            return ['success' => false, 'error' => $decoded['errors'][0]['message'] ?? 'Query error'];
+            return [
+                'success'      => false,
+                'http_code'    => $httpCode,
+                'error'        => $decoded['errors'][0]['message'] ?? 'Query error',
+                'raw_errors'   => $decoded['errors'] ?? null,
+                'raw_response' => $decoded
+            ];
         }
 
         return ['success' => true, 'data' => $decoded['data'] ?? []];
