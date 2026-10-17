@@ -19,10 +19,13 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // Step 1: Merchant Connect / Re-Authorize Trigger
-if (isset($_GET['connect']) || isset($_GET['install']) || (empty($code) && !empty($_GET['reauth']))) {
+if (empty($code) && (isset($_GET['connect']) || isset($_GET['install']) || isset($_GET['shop']) || !empty($_GET['installation_id']) || !empty($_GET['reauth']))) {
     if (!empty($_GET['store_id'])) {
         $_SESSION['oauth_requested_store_id'] = (string)$_GET['store_id'];
         $_SESSION['scora_store_id'] = (string)$_GET['store_id'];
+    }
+    if (!empty($_GET['installation_id'])) {
+        setSetting('scora_installation_id', (string)$_GET['installation_id']);
     }
 
     // Generate PKCE verifier (32 bytes hex) and S256 challenge

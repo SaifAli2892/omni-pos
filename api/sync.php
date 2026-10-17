@@ -97,6 +97,21 @@ if ($action === 'cleanup_duplicates') {
     exit;
 }
 
+if ($action === 'wipe_store') {
+    $storeId = (string)($_GET['store_id'] ?? currentStoreId());
+    if (empty($storeId)) {
+        echo json_encode(['success' => false, 'error' => 'No store selected']);
+        exit;
+    }
+    $purged = purgeStoreData($storeId);
+    echo json_encode([
+        'success'  => $purged,
+        'store_id' => $storeId,
+        'message'  => "Store {$storeId} data, products, orders, and token completely wiped."
+    ]);
+    exit;
+}
+
 if ($action === 'debug') {
     $sStmt = $pdo->query("SELECT `key`, `value` FROM settings");
     $settings = $sStmt->fetchAll(PDO::FETCH_KEY_PAIR);

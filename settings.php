@@ -250,6 +250,26 @@ try {
         <?php endif; ?>
     </div>
 
+    <!-- Developer Testing Tools (Wipe / Reset Store Data) -->
+    <div class="mt-6 p-6 rounded-xl bg-white border border-rose-100 shadow-sm">
+        <div class="flex items-center justify-between pb-3 border-b border-rose-100 mb-3">
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                <h2 class="font-bold text-sm text-slate-900 uppercase tracking-wider">Testing & Multi-Store Reset Tools</h2>
+            </div>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">Dev Testing</span>
+        </div>
+        <p class="text-xs text-slate-500 leading-relaxed mb-4">
+            When switching between Store A and Store B during manual token testing, you can wipe the local catalog, customers, and tokens for <strong><?php echo htmlspecialchars($storeName); ?> (Store ID: <?php echo htmlspecialchars($currentStoreId); ?>)</strong> with 1-click so test data does not mix.
+        </p>
+        <div class="flex flex-wrap items-center gap-3">
+            <button type="button" onclick="executeWipeStore()" id="btn-wipe-store" class="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold text-xs transition flex items-center gap-2">
+                <span>🗑️ Wipe Current Store Data & Token</span>
+            </button>
+            <span class="text-[11px] text-slate-400">Only affects active store (ID: <?php echo htmlspecialchars($currentStoreId); ?>). Other stores remain intact.</span>
+        </div>
+    </div>
+
 </div>
 
 <!-- Modal: Switch / Connect Store -->
@@ -386,6 +406,34 @@ async function executeManualToken() {
     } finally {
         btn.disabled = false;
         btn.innerText = 'Verify & Link Token';
+    }
+}
+
+async function executeWipeStore() {
+    if (!confirm('Are you sure you want to completely wipe all products, orders, and tokens for ' + activeStoreId + '? This will reset this store to a clean slate.')) {
+        return;
+    }
+    const btn = document.getElementById('btn-wipe-store');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Wiping...';
+    }
+    try {
+        const res = await fetch('api/sync.php?action=wipe_store&store_id=' + encodeURIComponent(activeStoreId));
+        const data = await res.json();
+        if (data.success) {
+            window.showToast(data.message || 'Store data wiped successfully!', 'success');
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            window.showToast(data.error || 'Failed to wipe store data', 'error');
+        }
+    } catch (e) {
+        window.showToast('Network error', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = '🗑️ Wipe Current Store Data & Token';
+        }
     }
 }
 </script>
