@@ -252,6 +252,9 @@ class CloudSyncClient {
             }
         } catch (Exception $e) {}
 
+        // Small pause to prevent hitting Scora rate limits
+        usleep(250000);
+
         // 2. Live Inventory Mapping from Scora inventoryItems API
         $stockByProduct = [];
         $invItemByProduct = [];
@@ -272,6 +275,9 @@ class CloudSyncClient {
                 }
             }
         } catch (Exception $e) {}
+
+        // Small pause to prevent hitting Scora rate limits
+        usleep(250000);
 
         // 3. Attempt live GraphQL query for product catalog
         $result = $this->fetchProducts(100);
@@ -340,7 +346,7 @@ class CloudSyncClient {
     }
 
     /**
-     * Fetch products from store with dynamic schema detection
+     * Fetch products from store via clean single GraphQL query (no trial loops)
      */
     public function fetchProducts($limit = 100) {
         if (empty($this->accessToken)) {
@@ -354,99 +360,21 @@ class CloudSyncClient {
             }
         }
 
-        // Candidates to query live inventory along with catalog
-        $candidates = [
-            // 1. Direct stock field
-            'query GetStoreCatalog($limit: Int!) {
-                products(first: $limit) {
-                    nodes {
-                        id
-                        title
-                        handle
-                        price
-                        sku
-                        compareAtPrice
-                        imageUrl
-                        stock
-                    }
+        $query = 'query GetStoreCatalog($limit: Int!) {
+            products(first: $limit) {
+                nodes {
+                    id
+                    title
+                    handle
+                    price
+                    sku
+                    compareAtPrice
+                    imageUrl
                 }
-            }',
-            // 2. inventoryQuantity field
-            'query GetStoreCatalog($limit: Int!) {
-                products(first: $limit) {
-                    nodes {
-                        id
-                        title
-                        handle
-                        price
-                        sku
-                        compareAtPrice
-                        imageUrl
-                        inventoryQuantity
-                    }
-                }
-            }',
-            // 3. totalInventory field
-            'query GetStoreCatalog($limit: Int!) {
-                products(first: $limit) {
-                    nodes {
-                        id
-                        title
-                        handle
-                        price
-                        sku
-                        compareAtPrice
-                        imageUrl
-                        totalInventory
-                    }
-                }
-            }',
-            // 4. Variants inventory
-            'query GetStoreCatalog($limit: Int!) {
-                products(first: $limit) {
-                    nodes {
-                        id
-                        title
-                        handle
-                        price
-                        sku
-                        compareAtPrice
-                        imageUrl
-                        variants(first: 5) {
-                            nodes {
-                                id
-                                price
-                                sku
-                                inventoryQuantity
-                            }
-                        }
-                    }
-                }
-            }',
-            // 5. Standard fallback
-            'query GetStoreCatalog($limit: Int!) {
-                products(first: $limit) {
-                    nodes {
-                        id
-                        title
-                        handle
-                        price
-                        sku
-                        compareAtPrice
-                        imageUrl
-                    }
-                }
-            }'
-        ];
-
-        foreach ($candidates as $query) {
-            $res = $this->query($query, ['limit' => (int)$limit]);
-            if ($res['success'] && isset($res['data']['products']['nodes'])) {
-                return $res;
             }
-        }
+        }';
 
-        return $this->query(end($candidates), ['limit' => (int)$limit]);
+        return $this->query($query, ['limit' => (int)$limit]);
     }
 
 
@@ -803,6 +731,16 @@ class CloudSyncClient {
 
         $decoded = json_decode($response, true);
 
+        // If rate limited (HTTP 429 or "Too many requests"), wait 2 seconds and retry once
+        $isRateLimited = ($httpCode === 429)
+            || (isset($decoded['message']) && stripos($decoded['message'], 'Too many requests') !== false)
+            || (isset($decoded['errors'][0]['message']) && stripos($decoded['errors'][0]['message'], 'Too many requests') !== false);
+
+        if ($isRateLimited && !$retried) {
+            usleep(2000000);
+            return $this->query($graphQLQuery, $variables, true);
+        }
+
         // If token expired (HTTP 401, UNAUTHENTICATED, or "expired" message), auto-refresh token and retry once
         $isExpired = ($httpCode === 401)
             || (isset($decoded['errors'][0]['extensions']['code']) && $decoded['errors'][0]['extensions']['code'] === 'UNAUTHENTICATED')
@@ -822,10 +760,11 @@ class CloudSyncClient {
         }
 
         if ($httpCode >= 400 || !empty($decoded['errors'])) {
+            $errorMsg = $decoded['errors'][0]['message'] ?? $decoded['message'] ?? 'Query error';
             return [
                 'success'      => false,
                 'http_code'    => $httpCode,
-                'error'        => $decoded['errors'][0]['message'] ?? 'Query error',
+                'error'        => $errorMsg,
                 'raw_errors'   => $decoded['errors'] ?? null,
                 'raw_response' => $decoded
             ];
