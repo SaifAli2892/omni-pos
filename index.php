@@ -233,8 +233,12 @@ function openTerminalFullscreen() {
                         </div>
 
                         <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                            <?php 
+                                $priceVal = (float)$p['selling_price'];
+                                $priceDisplay = ($priceVal == (int)$priceVal) ? number_format($priceVal, 0) : number_format($priceVal, 2);
+                            ?>
                             <span class="font-extrabold text-slate-900 font-sans text-base">
-                                <?php echo htmlspecialchars($currency); ?> <?php echo number_format((float)$p['selling_price']); ?>
+                                <?php echo htmlspecialchars($currency); ?> <?php echo $priceDisplay; ?>
                             </span>
                             <span class="px-3 py-1 rounded-md bg-emerald-50 text-emerald-700 group-hover:bg-emerald-700 group-hover:text-white font-bold text-xs transition">
                                 Add +

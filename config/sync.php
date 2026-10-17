@@ -241,23 +241,44 @@ class CloudSyncClient {
                     $costPrice = !empty($prod['compareAtPrice']) ? (float)$prod['compareAtPrice'] : ($price > 0 ? round($price * 0.7, 2) : 0);
                     $imageUrl = !empty($prod['imageUrl']) ? ('https://scora.com.pk/' . ltrim($prod['imageUrl'], '/')) : null;
 
+                    // Dynamic stock extracted from live Scora API response
+                    $stockQty = 0;
+                    if (isset($prod['stock'])) {
+                        $stockQty = (int)$prod['stock'];
+                    } elseif (isset($prod['inventoryQuantity'])) {
+                        $stockQty = (int)$prod['inventoryQuantity'];
+                    } elseif (isset($prod['totalInventory'])) {
+                        $stockQty = (int)$prod['totalInventory'];
+                    } elseif (isset($prod['quantity'])) {
+                        $stockQty = (int)$prod['quantity'];
+                    } elseif (!empty($prod['variants']['nodes'][0]['inventoryQuantity'])) {
+                        $stockQty = (int)$prod['variants']['nodes'][0]['inventoryQuantity'];
+                    } elseif (!empty($prod['variants']['nodes'][0]['stock'])) {
+                        $stockQty = (int)$prod['variants']['nodes'][0]['stock'];
+                    }
+
+                    $variantId = null;
+                    if (!empty($prod['variants']['nodes'][0]['id'])) {
+                        $variantId = (string)$prod['variants']['nodes'][0]['id'];
+                    }
+
                     $check = $this->pdo->prepare("SELECT id FROM products WHERE store_id = ? AND (scora_product_id = ? OR sku = ? OR title = ?) LIMIT 1");
                     $check->execute([$storeId, $cloudId, $sku, $title]);
                     $existing = $check->fetch();
 
                     if ($existing) {
-                        $upd = $this->pdo->prepare("UPDATE products SET title = ?, sku = ?, cost_price = ?, selling_price = ?, image_url = COALESCE(?, image_url), scora_product_id = ?, is_active = 1 WHERE id = ?");
-                        $upd->execute([$title, $sku, $costPrice, $price, $imageUrl, $cloudId, $existing['id']]);
+                        $upd = $this->pdo->prepare("UPDATE products SET title = ?, sku = ?, cost_price = ?, selling_price = ?, stock_qty = ?, image_url = COALESCE(?, image_url), scora_product_id = ?, scora_variant_id = COALESCE(?, scora_variant_id), is_active = 1 WHERE id = ?");
+                        $upd->execute([$title, $sku, $costPrice, $price, $stockQty, $imageUrl, $cloudId, $variantId, $existing['id']]);
                     } else {
-                        $ins = $this->pdo->prepare("INSERT INTO products (store_id, title, sku, cost_price, selling_price, stock_qty, alert_qty, image_url, scora_product_id, is_active) VALUES (?, ?, ?, ?, ?, 5, 2, ?, ?, 1)");
-                        $ins->execute([$storeId, $title, $sku, $costPrice, $price, $imageUrl, $cloudId]);
+                        $ins = $this->pdo->prepare("INSERT INTO products (store_id, title, sku, cost_price, selling_price, stock_qty, alert_qty, image_url, scora_product_id, scora_variant_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 2, ?, ?, ?, 1)");
+                        $ins->execute([$storeId, $title, $sku, $costPrice, $price, $stockQty, $imageUrl, $cloudId, $variantId]);
                     }
                     $imported++;
                 }
 
                 $this->cleanupDuplicates($storeId);
                 setSetting('cloud_last_sync', date('d-M-Y h:i A'));
-                $this->logEvent('live_graphql_sync', "Live-synced {$imported} real products from Scora Admin API for store {$storeId}", 'success');
+                $this->logEvent('live_graphql_sync', "Live-synced {$imported} real products with live stock from Scora Admin API for store {$storeId}", 'success');
 
                 return [
                     'success'  => true,
@@ -283,11 +304,10 @@ class CloudSyncClient {
     }
 
     /**
-     * Fetch products from store
+     * Fetch products from store with dynamic schema detection
      */
     public function fetchProducts($limit = 100) {
         if (empty($this->accessToken)) {
-            // Try refresh if refresh token is available
             if (!$this->refreshAccessToken()) {
                 return [
                     'success'   => false,
@@ -298,9 +318,77 @@ class CloudSyncClient {
             }
         }
 
-        // Live GraphQL query to Scora Admin API with exact schema fields
-        $query = '
-            query GetStoreCatalog($limit: Int!) {
+        // Candidates to query live inventory along with catalog
+        $candidates = [
+            // 1. Direct stock field
+            'query GetStoreCatalog($limit: Int!) {
+                products(first: $limit) {
+                    nodes {
+                        id
+                        title
+                        handle
+                        price
+                        sku
+                        compareAtPrice
+                        imageUrl
+                        stock
+                    }
+                }
+            }',
+            // 2. inventoryQuantity field
+            'query GetStoreCatalog($limit: Int!) {
+                products(first: $limit) {
+                    nodes {
+                        id
+                        title
+                        handle
+                        price
+                        sku
+                        compareAtPrice
+                        imageUrl
+                        inventoryQuantity
+                    }
+                }
+            }',
+            // 3. totalInventory field
+            'query GetStoreCatalog($limit: Int!) {
+                products(first: $limit) {
+                    nodes {
+                        id
+                        title
+                        handle
+                        price
+                        sku
+                        compareAtPrice
+                        imageUrl
+                        totalInventory
+                    }
+                }
+            }',
+            // 4. Variants inventory
+            'query GetStoreCatalog($limit: Int!) {
+                products(first: $limit) {
+                    nodes {
+                        id
+                        title
+                        handle
+                        price
+                        sku
+                        compareAtPrice
+                        imageUrl
+                        variants(first: 5) {
+                            nodes {
+                                id
+                                price
+                                sku
+                                inventoryQuantity
+                            }
+                        }
+                    }
+                }
+            }',
+            // 5. Standard fallback
+            'query GetStoreCatalog($limit: Int!) {
                 products(first: $limit) {
                     nodes {
                         id
@@ -312,33 +400,68 @@ class CloudSyncClient {
                         imageUrl
                     }
                 }
+            }'
+        ];
+
+        foreach ($candidates as $query) {
+            $res = $this->query($query, ['limit' => (int)$limit]);
+            if ($res['success'] && isset($res['data']['products']['nodes'])) {
+                return $res;
             }
-        ';
-        return $this->query($query, ['limit' => (int)$limit]);
+        }
+
+        return $this->query(end($candidates), ['limit' => (int)$limit]);
     }
 
 
     /**
-     * Real-time stock adjustment on counter sale
+     * Real-time stock adjustment on counter sale directly on Scora
      */
     public function adjustInventory($cloudProductId, $cloudVariantId, $delta = -1) {
         if (empty($this->accessToken)) {
-            $this->logEvent('stock_deduct', "Auto-deducted {$delta} stock for item {$cloudProductId}", 'success');
+            $this->logEvent('stock_deduct', "Local stock deduction {$delta} for item {$cloudProductId}", 'info');
             return ['success' => true];
         }
 
-        $mutation = '
-            mutation AdjustInventoryQuantity($variantId: ID!, $delta: Int!) {
-                inventoryAdjustQuantity(input: { variantId: $variantId, availableDelta: $delta }) {
-                    inventoryLevel { id available }
-                    userErrors { field message }
-                }
+        $mutations = [
+            // Mutation 1: Standard Shopify/Scora inventoryAdjustQuantity
+            [
+                'query' => 'mutation AdjustInventoryQuantity($variantId: ID!, $delta: Int!) {
+                    inventoryAdjustQuantity(input: { variantId: $variantId, availableDelta: $delta }) {
+                        inventoryLevel { id available }
+                        userErrors { field message }
+                    }
+                }',
+                'vars' => [
+                    'variantId' => $cloudVariantId ?: $cloudProductId,
+                    'delta'     => (int)$delta
+                ]
+            ],
+            // Mutation 2: productAdjustStock
+            [
+                'query' => 'mutation ProductAdjustStock($productId: ID!, $delta: Int!) {
+                    productAdjustStock(id: $productId, delta: $delta) {
+                        product { id title }
+                        userErrors { field message }
+                    }
+                }',
+                'vars' => [
+                    'productId' => $cloudProductId,
+                    'delta'     => (int)$delta
+                ]
+            ]
+        ];
+
+        $lastRes = null;
+        foreach ($mutations as $m) {
+            $lastRes = $this->query($m['query'], $m['vars']);
+            if ($lastRes['success']) {
+                $this->logEvent('stock_deduct', "Successfully adjusted {$delta} online stock on Scora for item {$cloudProductId}", 'success');
+                return $lastRes;
             }
-        ';
-        return $this->query($mutation, [
-            'variantId' => $cloudVariantId ?: $cloudProductId,
-            'delta'     => (int)$delta
-        ]);
+        }
+
+        return $lastRes ?? ['success' => false, 'error' => 'Could not adjust stock on Scora'];
     }
 
     public function query($graphQLQuery, $variables = [], $retried = false) {
