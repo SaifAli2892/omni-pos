@@ -102,4 +102,20 @@ if ($action === 'debug') {
     exit;
 }
 
+if ($action === 'inspect_scopes') {
+    $token = $client->getAccessToken();
+    $parts = explode('.', $token);
+    $payload = null;
+    if (count($parts) === 3) {
+        $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+    }
+    echo json_encode([
+        'store_id' => $storeId,
+        'has_token' => !empty($token),
+        'jwt_payload' => $payload,
+        'token_prefix' => substr($token, 0, 15) . '...'
+    ]);
+    exit;
+}
+
 echo json_encode(['success' => false, 'error' => 'Invalid action']);
