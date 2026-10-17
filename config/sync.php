@@ -451,6 +451,25 @@ class CloudSyncClient {
 
 
     /**
+     * Helper to ensure Scora product ID is in the base64 GID format expected by GraphQL
+     */
+    public function formatScoraProductId($id) {
+        if (empty($id)) return null;
+        $id = trim((string)$id);
+        $decoded = @base64_decode($id, true);
+        if ($decoded && str_starts_with($decoded, 'gid://scora/Product/')) {
+            return $id;
+        }
+        if (str_starts_with($id, 'gid://scora/Product/')) {
+            return base64_encode($id);
+        }
+        if (is_numeric($id)) {
+            return base64_encode("gid://scora/Product/{$id}");
+        }
+        return $id;
+    }
+
+    /**
      * Real-time stock adjustment on counter sale directly on Scora
      */
     public function adjustInventory($cloudProductId, $cloudVariantId = null, $delta = -1, $invItemId = null, $newStock = null) {
@@ -459,19 +478,65 @@ class CloudSyncClient {
             return ['success' => true];
         }
 
-        // Auto-lookup inventoryItemId if not directly supplied
-        if (empty($invItemId) && !empty($this->pdo)) {
+        // 1. Fetch live product info from local DB
+        $title = 'Product';
+        $price = 0.0;
+        $sku   = '';
+        if (!empty($this->pdo)) {
             try {
-                $pStmt = $this->pdo->prepare("SELECT scora_inventory_item_id, stock_qty FROM products WHERE (scora_product_id = ? OR id = ?) LIMIT 1");
+                $pStmt = $this->pdo->prepare("SELECT scora_product_id, title, selling_price, sku, stock_qty, scora_inventory_item_id FROM products WHERE (scora_product_id = ? OR id = ?) LIMIT 1");
                 $pStmt->execute([$cloudProductId, $cloudProductId]);
                 $pRow = $pStmt->fetch();
                 if ($pRow) {
-                    $invItemId = $pRow['scora_inventory_item_id'] ?? null;
+                    if (!empty($pRow['scora_product_id'])) {
+                        $cloudProductId = $pRow['scora_product_id'];
+                    }
+                    $title = $pRow['title'];
+                    $price = (float)$pRow['selling_price'];
+                    $sku   = $pRow['sku'];
                     if ($newStock === null) {
-                        $newStock = (int)$pRow['stock_qty'];
+                        $newStock = max(0, (int)$pRow['stock_qty']);
+                    }
+                    if (empty($invItemId)) {
+                        $invItemId = $pRow['scora_inventory_item_id'];
                     }
                 }
             } catch (Exception $e) {}
+        }
+
+        $formattedId = $this->formatScoraProductId($cloudProductId);
+
+        // 2. PRIMARY VERIFIED SCORA MUTATION: productUpdate with availableQuantity
+        // This updates Scora Cloud's inventoryItems.availableQuantity directly and immediately
+        if (!empty($formattedId)) {
+            $primaryMutation = 'mutation UpdateProductStock($id: ID!, $input: ProductInput!) {
+                productUpdate(id: $id, input: $input) {
+                    product {
+                        id
+                        title
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }';
+
+            $primaryVars = [
+                'id' => (string)$formattedId,
+                'input' => [
+                    'title'             => (string)$title,
+                    'price'             => (float)$price,
+                    'sku'               => (string)$sku,
+                    'availableQuantity' => max(0, (int)$newStock)
+                ]
+            ];
+
+            $res = $this->query($primaryMutation, $primaryVars);
+            if (!empty($res['success']) && empty($res['data']['productUpdate']['userErrors'])) {
+                $this->logEvent('stock_deduct', "Successfully updated Scora Cloud stock for '{$title}' to {$newStock}", 'success');
+                return $res;
+            }
         }
 
         $mutations = [];

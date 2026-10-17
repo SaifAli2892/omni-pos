@@ -93,16 +93,18 @@ try {
         $invItemId = $item['scora_inventory_item_id'] ?? null;
         $newStock = 0;
         try {
-            $pRow = $pdo->query("SELECT scora_inventory_item_id, stock_qty FROM products WHERE id = " . (int)$productId)->fetch();
+            $pRow = $pdo->query("SELECT scora_product_id, scora_variant_id, scora_inventory_item_id, stock_qty FROM products WHERE id = " . (int)$productId)->fetch();
             if ($pRow) {
+                if (empty($cloudId)) $cloudId = $pRow['scora_product_id'];
+                if (empty($cloudVarId)) $cloudVarId = $pRow['scora_variant_id'];
                 if (empty($invItemId)) $invItemId = $pRow['scora_inventory_item_id'];
                 $newStock = (int)$pRow['stock_qty'];
             }
         } catch (Exception $e) {}
 
-        if (!empty($cloudId) || !empty($cloudVarId) || !empty($invItemId)) {
+        if (!empty($cloudId) || !empty($cloudVarId) || !empty($invItemId) || !empty($productId)) {
             $cloudItemsToSync[] = [
-                'product_id'        => $cloudId,
+                'product_id'        => $cloudId ?: $productId,
                 'variant_id'        => $cloudVarId,
                 'inventory_item_id' => $invItemId,
                 'new_stock'         => $newStock,
