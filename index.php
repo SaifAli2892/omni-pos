@@ -150,10 +150,9 @@ function openTerminalFullscreen() {
 
         async function quickSyncStoreProducts(btn) {
             if (!window.hasScoraToken) {
-                if (window.showToast) window.showToast('Connecting to Scora for 1-click authorization...', 'info');
-                setTimeout(() => {
-                    window.location.href = 'oauth.php?connect=1&store_id=' + encodeURIComponent(window.currentStoreId);
-                }, 400);
+                const modal = document.getElementById('app-not-installed-modal');
+                if (modal) modal.classList.remove('hidden');
+                else window.location.href = 'oauth.php?connect=1&store_id=' + encodeURIComponent(window.currentStoreId);
                 return;
             }
 
@@ -168,10 +167,9 @@ function openTerminalFullscreen() {
                     window.showToast(data.message || 'Store products synced!', 'success');
                     setTimeout(() => window.location.reload(), 800);
                 } else if (data.need_auth || (data.error && (data.error.includes('expired') || data.error.includes('refresh token') || data.error.includes('UNAUTHENTICATED')))) {
-                    window.showToast('Scora authorization needed. Redirecting...', 'info');
-                    setTimeout(() => {
-                        window.location.href = data.auth_url || ('oauth.php?connect=1&store_id=' + encodeURIComponent(window.currentStoreId));
-                    }, 600);
+                    const modal = document.getElementById('app-not-installed-modal');
+                    if (modal) modal.classList.remove('hidden');
+                    else window.location.href = 'oauth.php?connect=1&store_id=' + encodeURIComponent(window.currentStoreId);
                 } else {
                     window.showToast(data.error || 'Failed to sync', 'error');
                     if (btn) {
@@ -180,7 +178,9 @@ function openTerminalFullscreen() {
                     }
                 }
             } catch (e) {
-                window.location.href = 'oauth.php?connect=1&store_id=' + encodeURIComponent(window.currentStoreId);
+                const modal = document.getElementById('app-not-installed-modal');
+                if (modal) modal.classList.remove('hidden');
+                else window.location.href = 'oauth.php?connect=1&store_id=' + encodeURIComponent(window.currentStoreId);
             }
         }
         </script>
@@ -188,15 +188,37 @@ function openTerminalFullscreen() {
         <!-- Products Grid -->
         <div id="products-grid" class="flex-1 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 overflow-y-auto pr-1">
             <?php if (empty($cloudToken)): ?>
-                <div class="col-span-full py-16 text-center bg-white rounded-2xl border border-emerald-200 p-8 shadow-sm my-auto max-w-md mx-auto">
-                    <div class="w-14 h-14 mx-auto mb-3 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-2xl font-black">
-                        ⚡
+                <div class="col-span-full py-16 text-center bg-white rounded-3xl border border-amber-200 p-8 shadow-sm my-auto max-w-md mx-auto">
+                    <div class="w-16 h-16 mx-auto mb-3 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center text-3xl font-black">
+                        🔌
                     </div>
-                    <h3 class="text-lg font-black text-slate-900 mb-1">Connect <?php echo htmlspecialchars($storeName ?: 'Your Store'); ?></h3>
-                    <p class="text-xs text-slate-500 mb-6">Authorize OmniPOS via Scora OAuth 2.0 to import your store's live catalog and enable real-time inventory synchronization.</p>
-                    <a href="oauth.php?connect=1<?php echo !empty($currentStoreId) ? '&store_id=' . urlencode($currentStoreId) : ''; ?>" class="w-full py-3 px-5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition shadow-md flex items-center justify-center gap-2">
-                        <span>⚡ 1-Click Authorize with Scora</span>
-                    </a>
+                    <span class="inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 mb-2">
+                        Scora App Not Installed
+                    </span>
+                    <h3 class="text-lg font-black text-slate-900 mb-1">Install OmniPOS on Scora</h3>
+                    <p class="text-xs text-slate-500 mb-6 leading-relaxed">Aapke Scora store (<b><?php echo htmlspecialchars($storeName ?: $currentStoreId); ?></b>) par abhi OmniPOS install nahi hai. Pehle Scora Admin par ja kar app install karein:</p>
+                    <div class="space-y-2.5 text-left bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs text-slate-600 mb-6">
+                        <div class="flex items-start gap-2">
+                            <span class="w-4 h-4 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
+                            <span>Scora Apps Store (<b>apps.php</b>) open karein.</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="w-4 h-4 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
+                            <span><b>OmniPOS</b> par <b>Install App</b> click karein.</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="w-4 h-4 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">3</span>
+                            <span>Permissions approve hote hi live catalog sync ho jayega!</span>
+                        </div>
+                    </div>
+                    <div class="space-y-2.5">
+                        <a href="https://scora.com.pk/admin/apps.php" target="_blank" class="w-full py-3.5 px-5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition shadow-md flex items-center justify-center gap-2">
+                            <span>🛍️ Open Scora Apps Store (apps.php)</span>
+                        </a>
+                        <a href="oauth.php?connect=1<?php echo !empty($currentStoreId) ? '&store_id=' . urlencode($currentStoreId) : ''; ?>&force=1" class="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center justify-center gap-1.5">
+                            <span>🔑 Already Installed? Connect Store</span>
+                        </a>
+                    </div>
                 </div>
             <?php elseif (empty($products)): ?>
                 <div class="col-span-full py-20 text-center bg-white rounded-2xl border border-slate-200 p-8 shadow-sm my-auto">
@@ -431,6 +453,49 @@ function openTerminalFullscreen() {
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Modal: Scora App Not Installed Guidance -->
+<div id="app-not-installed-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-150">
+        <div class="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center text-3xl mx-auto mb-4 shadow-sm">
+            🔌
+        </div>
+        <span class="inline-block px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 mb-2">
+            Installation Required
+        </span>
+        <h3 class="text-lg font-black text-slate-900 mb-2">OmniPOS is not installed on Scora yet</h3>
+        <p class="text-xs text-slate-500 leading-relaxed mb-6">
+            Scora store se connect karne ke liye pehle Scora Admin par ja kar OmniPOS app install karein. Direct authorize tabhi kaam karta hai jab app Scora par install ho chuki ho.
+        </p>
+
+        <div class="bg-slate-50 rounded-2xl p-4 text-left border border-slate-200 mb-6 text-xs text-slate-600 space-y-2.5">
+            <div class="flex items-start gap-2.5">
+                <span class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[11px] shrink-0">1</span>
+                <span>Neeche <b>"Open Scora Apps Store"</b> button par click karein.</span>
+            </div>
+            <div class="flex items-start gap-2.5">
+                <span class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[11px] shrink-0">2</span>
+                <span><b>OmniPOS</b> app ke aage <b>Install App</b> par click karein.</span>
+            </div>
+            <div class="flex items-start gap-2.5">
+                <span class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[11px] shrink-0">3</span>
+                <span>Approve hote hi aapka store live connect ho jayega!</span>
+            </div>
+        </div>
+
+        <div class="space-y-2.5">
+            <a href="https://scora.com.pk/admin/apps.php" target="_blank" class="w-full py-3.5 px-5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition shadow-md flex items-center justify-center gap-2">
+                <span>🛍️ Open Scora Apps (Install App)</span>
+            </a>
+            <a href="oauth.php?connect=1<?php echo !empty($currentStoreId) ? '&store_id=' . urlencode($currentStoreId) : ''; ?>&force=1" class="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center justify-center gap-1.5">
+                <span>🔑 Already Installed? Connect Now</span>
+            </a>
+            <button type="button" onclick="document.getElementById('app-not-installed-modal').classList.add('hidden')" class="w-full py-2 text-xs text-slate-400 hover:text-slate-600 font-semibold">
+                Close
+            </button>
+        </div>
     </div>
 </div>
 

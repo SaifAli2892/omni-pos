@@ -20,12 +20,77 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // Step 1: Merchant Connect / Re-Authorize Trigger
 if (empty($code) && (isset($_GET['connect']) || isset($_GET['install']) || isset($_GET['shop']) || !empty($_GET['installation_id']) || !empty($_GET['reauth']))) {
-    if (!empty($_GET['store_id'])) {
-        $_SESSION['oauth_requested_store_id'] = (string)$_GET['store_id'];
-        $_SESSION['scora_store_id'] = (string)$_GET['store_id'];
+    $targetStoreId = !empty($_GET['store_id']) ? (string)$_GET['store_id'] : currentStoreId();
+    if (!empty($targetStoreId)) {
+        $_SESSION['oauth_requested_store_id'] = $targetStoreId;
+        $_SESSION['scora_store_id'] = $targetStoreId;
     }
     if (!empty($_GET['installation_id'])) {
         setSetting('scora_installation_id', (string)$_GET['installation_id']);
+    }
+
+    $isForce = isset($_GET['force']) || !empty($_GET['installation_id']);
+
+    // If not forced and no installation_id, show the clean "App Not Installed on Scora" guidance page
+    if (!$isForce) {
+        $storeName = $_SESSION['scora_store_name'] ?? ('Store ' . $targetStoreId);
+        ?>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Install OmniPOS on Scora</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+            <style>
+                body { font-family: 'Plus Jakarta Sans', sans-serif; }
+            </style>
+        </head>
+        <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4 text-slate-800">
+            <div class="max-w-md w-full bg-white rounded-3xl p-8 shadow-xl border border-slate-200/80 text-center animate-in fade-in zoom-in-95 duration-200">
+                <div class="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center text-3xl mx-auto mb-4 shadow-sm">
+                    🔌
+                </div>
+                <span class="inline-block px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 mb-3">
+                    Scora App Installation Required
+                </span>
+                <h1 class="text-xl font-extrabold text-slate-900 mb-2">OmniPOS is not installed on Scora yet</h1>
+                <p class="text-xs text-slate-500 leading-relaxed mb-6">
+                    Aapke Scora store (<b><?php echo htmlspecialchars($storeName); ?></b>) par abhi OmniPOS app install nahi hai. Pehle Scora Admin par ja kar app install karein:
+                </p>
+
+                <div class="bg-slate-50 rounded-2xl p-4 text-left border border-slate-200 mb-6 text-xs text-slate-600 space-y-2.5">
+                    <div class="flex items-start gap-2.5">
+                        <span class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[11px] shrink-0">1</span>
+                        <span>Neeche <b>"Open Scora Apps Store"</b> par click karein.</span>
+                    </div>
+                    <div class="flex items-start gap-2.5">
+                        <span class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[11px] shrink-0">2</span>
+                        <span><b>OmniPOS</b> app ke saamne <b>Install App</b> par click karein.</span>
+                    </div>
+                    <div class="flex items-start gap-2.5">
+                        <span class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[11px] shrink-0">3</span>
+                        <span>Permissions approve karein, aapka store automatically live sync ho jayega!</span>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <a href="https://scora.com.pk/admin/apps.php" target="_blank" class="w-full py-3.5 px-5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition shadow-md flex items-center justify-center gap-2">
+                        <span>🛍️ Open Scora Apps Store (apps.php)</span>
+                    </a>
+                    <a href="oauth.php?connect=1&store_id=<?php echo urlencode($targetStoreId); ?>&force=1" class="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center justify-center gap-1.5">
+                        <span>🔑 Already Installed? Proceed to Authorize</span>
+                    </a>
+                    <a href="index.php?store_id=<?php echo urlencode($targetStoreId); ?>" class="inline-block text-xs text-slate-400 hover:text-slate-600 font-semibold pt-1">
+                        ← Back to POS Terminal
+                    </a>
+                </div>
+            </div>
+        </body>
+        </html>
+        <?php
+        exit;
     }
 
     // Generate PKCE verifier (32 bytes hex) and S256 challenge
