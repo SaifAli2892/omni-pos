@@ -153,9 +153,11 @@ if ($action === 'test_rest') {
 }
 
 if ($action === 'inspect_logs') {
-    $s = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 20")->fetchAll();
+    $s = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 10")->fetchAll();
     $counts = $pdo->query("SELECT store_id, COUNT(*) as cnt FROM products GROUP BY store_id")->fetchAll();
-    echo json_encode(['logs' => $s, 'product_counts' => $counts]);
+    $tokens = $pdo->query("SELECT store_id, store_name, updated_at FROM store_tokens")->fetchAll();
+    $allProdStores = $pdo->query("SELECT id, store_id, title FROM products LIMIT 15")->fetchAll();
+    echo json_encode(['tokens' => $tokens, 'product_counts' => $counts, 'sample_products' => $allProdStores]);
     exit;
 }
 
