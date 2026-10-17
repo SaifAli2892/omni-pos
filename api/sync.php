@@ -152,10 +152,32 @@ if ($action === 'test_rest') {
     exit;
 }
 
-if ($action === 'inspect_logs') {
-    $now = date('Y-m-d H:i:s');
-    $lastLogs = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 5")->fetchAll();
-    echo json_encode(['server_now' => $now, 'last_logs' => $lastLogs]);
+if ($action === 'test_insert') {
+    $storeId = '53';
+    $res = $client->fetchProducts(2);
+    $node = $res['data']['products']['nodes'][0];
+    $cloudId = (string)$node['id'];
+    $title = $node['title'];
+    $price = (float)($node['price'] ?? 0);
+    $sku = !empty($node['sku']) ? $node['sku'] : ('SKU-' . substr(md5($cloudId), 0, 8));
+    $costPrice = 0;
+    $stockQty = 10;
+    $imageUrl = null;
+    $variantId = null;
+    $invItemId = null;
+
+    try {
+        $check = $pdo->prepare("SELECT id, store_id, title FROM products WHERE store_id = ? AND (scora_product_id = ? OR sku = ? OR title = ?) LIMIT 1");
+        $check->execute([$storeId, $cloudId, $sku, $title]);
+        $existing = $check->fetch();
+
+        $ins = $pdo->prepare("INSERT INTO products (store_id, title, sku, cost_price, selling_price, stock_qty, alert_qty, image_url, scora_product_id, scora_variant_id, scora_inventory_item_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 2, ?, ?, ?, ?, 1)");
+        $execRes = $ins->execute([$storeId, $title, $sku, $costPrice, $price, $stockQty, $imageUrl, $cloudId, $variantId, $invItemId]);
+        $lastId = $pdo->lastInsertId();
+        echo json_encode(['existing' => $existing, 'exec' => $execRes, 'lastId' => $lastId, 'errorInfo' => $ins->errorInfo()]);
+    } catch (Exception $e) {
+        echo json_encode(['exception' => $e->getMessage()]);
+    }
     exit;
 }
 
