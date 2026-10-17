@@ -6,30 +6,35 @@
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/includes/header.php';
 
-// Fetch Categories
+$currentStoreId = currentStoreId();
+
+// Fetch Categories for current store
 $categories = [];
 try {
-    $cStmt = $pdo->query("SELECT * FROM categories ORDER BY id ASC");
+    $cStmt = $pdo->prepare("SELECT * FROM categories WHERE store_id = ? ORDER BY id ASC");
+    $cStmt->execute([$currentStoreId]);
     $categories = $cStmt->fetchAll();
 } catch (Exception $e) {}
 
-// Fetch Active Products
+// Fetch Active Products for current store only (Store Isolation)
 $products = [];
 try {
-    $pStmt = $pdo->query("
+    $pStmt = $pdo->prepare("
         SELECT p.*, c.name as category_name 
         FROM products p 
         LEFT JOIN categories c ON p.category_id = c.id 
-        WHERE p.is_active = 1 
+        WHERE p.store_id = ? AND p.is_active = 1 
         ORDER BY p.id ASC
     ");
+    $pStmt->execute([$currentStoreId]);
     $products = $pStmt->fetchAll();
 } catch (Exception $e) {}
 
-// Fetch Customers
+// Fetch Customers for current store
 $customers = [];
 try {
-    $custStmt = $pdo->query("SELECT * FROM customers ORDER BY id ASC");
+    $custStmt = $pdo->prepare("SELECT * FROM customers WHERE store_id = ? ORDER BY id ASC");
+    $custStmt->execute([$currentStoreId]);
     $customers = $custStmt->fetchAll();
 } catch (Exception $e) {}
 
@@ -154,11 +159,11 @@ function openTerminalFullscreen() {
                 if (data.success) {
                     window.showToast(data.message || 'Store products synced!', 'success');
                     setTimeout(() => window.location.reload(), 800);
-                } else if (data.need_auth) {
-                    window.showToast('Connecting Scora store...', 'info');
+                } else if (data.need_auth || (data.error && (data.error.includes('expired') || data.error.includes('refresh token') || data.error.includes('UNAUTHENTICATED')))) {
+                    window.showToast('Scora token expired. Renewing 1-click authorization...', 'info');
                     setTimeout(() => {
                         window.location.href = 'oauth.php?connect=1';
-                    }, 500);
+                    }, 600);
                 } else {
                     window.showToast(data.error || 'Failed to sync', 'error');
                     if (btn) {

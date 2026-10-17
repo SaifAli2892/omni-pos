@@ -93,12 +93,26 @@ function getSetting($key, $default = '') {
         if (!empty($v)) return $v;
     }
 
+    if ($key === 'cloud_access_token') {
+        $envToken = $_SERVER['SCORA_ACCESS_TOKEN'] ?? $_ENV['SCORA_ACCESS_TOKEN'] ?? getenv('SCORA_ACCESS_TOKEN');
+        if (!empty($envToken)) return $envToken;
+    }
+
     if (!$pdo) return $default;
     try {
         $stmt = $pdo->prepare("SELECT `value` FROM settings WHERE `key` = ? LIMIT 1");
         $stmt->execute([$key]);
         $row = $stmt->fetch();
-        return $row ? $row['value'] : $default;
+        $val = $row ? $row['value'] : $default;
+
+        // Upgrade expired token to new 30-day test token provided in developer portal
+        if ($key === 'cloud_access_token' && (empty($val) || strpos($val, 'Qr4q') !== false)) {
+            $newToken = 'b6IvW9ab8Ckqk9gMkEox_BbV3netq2smn4avva6v0_VE9UnaFSF6p5Lb6LY5oKB7';
+            setSetting('cloud_access_token', $newToken);
+            return $newToken;
+        }
+
+        return $val;
     } catch (Exception $e) {
         return $default;
     }
@@ -115,3 +129,97 @@ function setSetting($key, $value) {
         return false;
     }
 }
+
+// Get the active store ID (multi-tenant context)
+function currentStoreId() {
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+    if (!empty($_SESSION['scora_store_id'])) {
+        return (string)$_SESSION['scora_store_id'];
+    }
+    if (!empty($_GET['store_id'])) {
+        return (string)$_GET['store_id'];
+    }
+    return (string)getSetting('scora_store_id', '56');
+}
+
+// Completely wipe all data belonging to a store (used upon app uninstall or GDPR redact)
+function purgeStoreData($storeId) {
+    global $pdo;
+    if (empty($storeId) || !$pdo) return false;
+
+    try {
+        $pdo->beginTransaction();
+
+        // 1. Delete sale items belonging to this store's sales
+        $pdo->prepare("DELETE si FROM sale_items si INNER JOIN sales s ON si.sale_id = s.id WHERE s.store_id = ?")->execute([$storeId]);
+
+        // 2. Delete customer ledgers belonging to this store's customers
+        $pdo->prepare("DELETE cl FROM customer_ledgers cl INNER JOIN customers c ON cl.customer_id = c.id WHERE c.store_id = ?")->execute([$storeId]);
+
+        // 3. Delete sales
+        $pdo->prepare("DELETE FROM sales WHERE store_id = ?")->execute([$storeId]);
+
+        // 4. Delete customers
+        $pdo->prepare("DELETE FROM customers WHERE store_id = ?")->execute([$storeId]);
+
+        // 5. Delete products
+        $pdo->prepare("DELETE FROM products WHERE store_id = ?")->execute([$storeId]);
+
+        // 6. Delete categories
+        $pdo->prepare("DELETE FROM categories WHERE store_id = ?")->execute([$storeId]);
+
+        // 7. Delete sync logs
+        $pdo->prepare("DELETE FROM sync_logs WHERE store_id = ?")->execute([$storeId]);
+
+        // 8. Reset store settings if it was the active store
+        $activeStore = getSetting('scora_store_id', '');
+        if ($activeStore === (string)$storeId) {
+            setSetting('cloud_access_token', '');
+            setSetting('cloud_refresh_token', '');
+            setSetting('scora_installation_id', '');
+            setSetting('scora_store_id', '');
+            setSetting('cloud_last_sync', '');
+        }
+
+        $pdo->commit();
+        return true;
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        return false;
+    }
+}
+
+// Ensure multi-tenant columns exist on all core tables
+try {
+    if ($pdo) {
+        $pCols = $pdo->query("SHOW COLUMNS FROM products LIKE 'store_id'")->fetch();
+        if (!$pCols) {
+            $pdo->exec("ALTER TABLE products ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
+            $pdo->exec("ALTER TABLE products ADD INDEX idx_store (store_id)");
+        }
+        $cCols = $pdo->query("SHOW COLUMNS FROM categories LIKE 'store_id'")->fetch();
+        if (!$cCols) {
+            $pdo->exec("ALTER TABLE categories ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
+            $pdo->exec("ALTER TABLE categories ADD INDEX idx_store (store_id)");
+        }
+        $custCols = $pdo->query("SHOW COLUMNS FROM customers LIKE 'store_id'")->fetch();
+        if (!$custCols) {
+            $pdo->exec("ALTER TABLE customers ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
+            $pdo->exec("ALTER TABLE customers ADD INDEX idx_store (store_id)");
+        }
+        $sCols = $pdo->query("SHOW COLUMNS FROM sales LIKE 'store_id'")->fetch();
+        if (!$sCols) {
+            $pdo->exec("ALTER TABLE sales ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
+            $pdo->exec("ALTER TABLE sales ADD INDEX idx_store (store_id)");
+        }
+        $lCols = $pdo->query("SHOW COLUMNS FROM sync_logs LIKE 'store_id'")->fetch();
+        if (!$lCols) {
+            $pdo->exec("ALTER TABLE sync_logs ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
+            $pdo->exec("ALTER TABLE sync_logs ADD INDEX idx_store (store_id)");
+        }
+    }
+} catch (Exception $e) {}

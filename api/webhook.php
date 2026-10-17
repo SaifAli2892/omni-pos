@@ -50,11 +50,43 @@ if (!$data) {
     exit;
 }
 
+// Determine Webhook Topic
+$topic = $_SERVER['HTTP_X_SCORA_TOPIC'] ?? $_SERVER['HTTP_X_SCORA_EVENT'] ?? $data['topic'] ?? $data['type'] ?? '';
+
 try {
-    // If webhook contains line items (e.g., order created online)
+    // 1. Mandatory Uninstall & Data Wipe: app/uninstalled or shop/redact
+    if ($topic === 'app/uninstalled' || $topic === 'shop/redact' || $topic === 'app.uninstalled' || isset($data['shop_id']) && $topic === 'shop/redact') {
+        $storeId = (string)($data['store_id'] ?? $data['shop_id'] ?? $data['storeId'] ?? $data['installation_id'] ?? currentStoreId());
+        if (!empty($storeId)) {
+            $purged = purgeStoreData($storeId);
+            echo json_encode([
+                'status'   => 'purged',
+                'store_id' => $storeId,
+                'message'  => "All store data, products, orders, and tokens permanently removed for store {$storeId}."
+            ]);
+            exit;
+        }
+    }
+
+    // 2. Customer Redact (GDPR Compliance)
+    if ($topic === 'customers/redact') {
+        $customerId = $data['customer']['id'] ?? $data['customer_id'] ?? null;
+        $customerEmail = $data['customer']['email'] ?? $data['email'] ?? null;
+        $storeId = (string)($data['store_id'] ?? $data['shop_id'] ?? currentStoreId());
+
+        if ($customerId || $customerEmail) {
+            $cStmt = $pdo->prepare("DELETE FROM customers WHERE store_id = ? AND (id = ? OR email = ?)");
+            $cStmt->execute([$storeId, $customerId, $customerEmail]);
+        }
+        echo json_encode(['status' => 'customer_redacted']);
+        exit;
+    }
+
+    // 3. Online Order Webhook (Stock Deduction)
     if (!empty($data['lineItems']) || !empty($data['line_items'])) {
         $items = $data['lineItems'] ?? $data['line_items'];
-        $deductStmt = $pdo->prepare("UPDATE products SET stock_qty = GREATEST(0, stock_qty - ?) WHERE scora_product_id = ? OR scora_variant_id = ?");
+        $storeId = (string)($data['store_id'] ?? $data['shop_id'] ?? currentStoreId());
+        $deductStmt = $pdo->prepare("UPDATE products SET stock_qty = GREATEST(0, stock_qty - ?) WHERE store_id = ? AND (scora_product_id = ? OR scora_variant_id = ?)");
 
         foreach ($items as $item) {
             $qty = (int)($item['quantity'] ?? 1);
@@ -62,7 +94,7 @@ try {
             $prodId = $item['productId'] ?? $item['product_id'] ?? null;
 
             if ($varId || $prodId) {
-                $deductStmt->execute([$qty, $prodId, $varId]);
+                $deductStmt->execute([$qty, $storeId, $prodId, $varId]);
             }
         }
 

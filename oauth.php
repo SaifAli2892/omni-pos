@@ -24,7 +24,7 @@ if (isset($_GET['connect']) || isset($_GET['install']) || (empty($code) && !empt
     setSetting('scora_code_verifier', $verifier);
     setSetting('scora_oauth_state', $randState);
 
-    $scopes = 'store:read,products:read,products:write,collections:read,orders:read,orders:write,customers:read,customers:write,inventory:read,inventory:write';
+    $scopes = 'store:read products:read products:write collections:read orders:read orders:write customers:read customers:write inventory:read inventory:write';
     $installationId = getSetting('scora_installation_id', '11');
 
     $authorizeUrl = "https://scora.com.pk/api/admin/oauth/authorize?" . http_build_query([

@@ -24,25 +24,27 @@ class CloudSyncClient {
         ];
     }
 
-    public function cleanupDuplicates() {
+    public function cleanupDuplicates($storeId = null) {
         if (!$this->pdo) return ['success' => false, 'error' => 'No database connection'];
+        $storeId = (string)($storeId ?: currentStoreId());
         try {
-            // Delete duplicate products keeping the earliest record
+            // Delete duplicate products for this store keeping the earliest record
             $sql = "DELETE p1 FROM products p1
                     INNER JOIN products p2 
-                    WHERE p1.id > p2.id AND (
+                    WHERE p1.store_id = p2.store_id 
+                      AND p1.store_id = ?
+                      AND p1.id > p2.id AND (
                         REPLACE(REPLACE(p1.title, '-', ' '), '  ', ' ') = REPLACE(REPLACE(p2.title, '-', ' '), '  ', ' ')
                         OR (p1.sku = p2.sku AND p1.sku IS NOT NULL AND p1.sku != '')
                     )";
-            $deleted = $this->pdo->exec($sql);
-
-            // Normalize stock to 5 to match Scora
-            $this->pdo->exec("UPDATE products SET stock_qty = 5 WHERE title LIKE '%Embroidered%' AND stock_qty > 5");
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$storeId]);
+            $deleted = $stmt->rowCount();
 
             return [
                 'success' => true,
                 'deleted' => (int)$deleted,
-                'message' => "Cleaned up {$deleted} duplicate entries successfully."
+                'message' => "Cleaned up {$deleted} duplicate entries successfully for store {$storeId}."
             ];
         } catch (Exception $e) {
             return ['success' => false, 'error' => $e->getMessage()];
@@ -140,65 +142,44 @@ class CloudSyncClient {
     }
 
     /**
-     * Real-Time Import of Store Products
+     * Real-Time Import of Store Products from Scora GraphQL API
      */
-    public function importStoreProducts() {
+    public function importStoreProducts($storeId = null) {
+        $storeId = (string)($storeId ?: currentStoreId());
+
         // Attempt live GraphQL query
         $result = $this->fetchProducts(100);
         $nodes = ($result['success'] && !empty($result['data']['products']['nodes'])) ? $result['data']['products']['nodes'] : [];
 
-        // If GraphQL succeeds with nodes, import directly
+        // If GraphQL succeeds with nodes, import dynamically
         if (!empty($nodes)) {
             $imported = 0;
             try {
                 foreach ($nodes as $prod) {
-                    $cloudId = $prod['id'];
+                    $cloudId = (string)$prod['id'];
                     $title = $prod['title'];
-                    $price = (float)($prod['price'] ?? 1999);
-                    $totalInventory = (int)($prod['totalInventory'] ?? 5);
-                    $variants = $prod['variants']['nodes'] ?? [];
+                    $price = (float)($prod['price'] ?? 0);
+                    $sku = !empty($prod['sku']) ? $prod['sku'] : ('SKU-' . substr(md5($cloudId), 0, 8));
+                    $costPrice = !empty($prod['compareAtPrice']) ? (float)$prod['compareAtPrice'] : ($price > 0 ? round($price * 0.7, 2) : 0);
+                    $imageUrl = !empty($prod['imageUrl']) ? ('https://scora.com.pk/' . ltrim($prod['imageUrl'], '/')) : null;
 
-                    if (!empty($variants)) {
-                        foreach ($variants as $var) {
-                            $varId = $var['id'];
-                            $varSku = !empty($var['sku']) ? $var['sku'] : ('SKU-' . substr(md5($varId), 0, 8));
-                            $varPrice = (float)($var['price'] ?? $price);
-                            $varQty = isset($var['inventoryQuantity']) ? (int)$var['inventoryQuantity'] : $totalInventory;
-                            $fullTitle = $title . ($var['title'] !== 'Default Title' && !empty($var['title']) ? " ({$var['title']})" : '');
+                    $check = $this->pdo->prepare("SELECT id FROM products WHERE store_id = ? AND (scora_product_id = ? OR sku = ? OR title = ?) LIMIT 1");
+                    $check->execute([$storeId, $cloudId, $sku, $title]);
+                    $existing = $check->fetch();
 
-                            $check = $this->pdo->prepare("SELECT id FROM products WHERE scora_variant_id = ? OR scora_product_id = ? OR title = ? OR sku = ? LIMIT 1");
-                            $check->execute([$varId, $cloudId, $fullTitle, $varSku]);
-                            $existing = $check->fetch();
-
-                            if ($existing) {
-                                $upd = $this->pdo->prepare("UPDATE products SET title = ?, sku = ?, selling_price = ?, stock_qty = ?, scora_product_id = ?, scora_variant_id = ?, is_active = 1 WHERE id = ?");
-                                $upd->execute([$fullTitle, $varSku, $varPrice, $varQty, $cloudId, $varId, $existing['id']]);
-                            } else {
-                                $ins = $this->pdo->prepare("INSERT INTO products (title, sku, selling_price, stock_qty, scora_product_id, scora_variant_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)");
-                                $ins->execute([$fullTitle, $varSku, $varPrice, $varQty, $cloudId, $varId]);
-                            }
-                            $imported++;
-                        }
+                    if ($existing) {
+                        $upd = $this->pdo->prepare("UPDATE products SET title = ?, sku = ?, cost_price = ?, selling_price = ?, image_url = COALESCE(?, image_url), scora_product_id = ?, is_active = 1 WHERE id = ?");
+                        $upd->execute([$title, $sku, $costPrice, $price, $imageUrl, $cloudId, $existing['id']]);
                     } else {
-                        $sku = 'SKU-' . substr(md5($cloudId), 0, 8);
-                        $check = $this->pdo->prepare("SELECT id FROM products WHERE scora_product_id = ? OR title = ? LIMIT 1");
-                        $check->execute([$cloudId, $title]);
-                        $existing = $check->fetch();
-
-                        if ($existing) {
-                            $upd = $this->pdo->prepare("UPDATE products SET title = ?, selling_price = ?, stock_qty = ?, scora_product_id = ?, is_active = 1 WHERE id = ?");
-                            $upd->execute([$title, $price, $totalInventory, $cloudId, $existing['id']]);
-                        } else {
-                            $ins = $this->pdo->prepare("INSERT INTO products (title, sku, selling_price, stock_qty, scora_product_id, is_active) VALUES (?, ?, ?, ?, ?, 1)");
-                            $ins->execute([$title, $sku, $price, $totalInventory, $cloudId]);
-                        }
-                        $imported++;
+                        $ins = $this->pdo->prepare("INSERT INTO products (store_id, title, sku, cost_price, selling_price, stock_qty, alert_qty, image_url, scora_product_id, is_active) VALUES (?, ?, ?, ?, ?, 5, 2, ?, ?, 1)");
+                        $ins->execute([$storeId, $title, $sku, $costPrice, $price, $imageUrl, $cloudId]);
                     }
+                    $imported++;
                 }
 
-                $this->cleanupDuplicates();
+                $this->cleanupDuplicates($storeId);
                 setSetting('cloud_last_sync', date('d-M-Y h:i A'));
-                $this->logEvent('live_graphql_sync', "Live-synced {$imported} real products from Scora Admin API", 'success');
+                $this->logEvent('live_graphql_sync', "Live-synced {$imported} real products from Scora Admin API for store {$storeId}", 'success');
 
                 return [
                     'success'  => true,
@@ -210,63 +191,16 @@ class CloudSyncClient {
             }
         }
 
-        // Resilient Fallback: Sync the full 13 products from MM_official store catalog
-        $mmProducts = [
-            ['title' => 'Maroon White Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-MW-001', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Aqua Blue Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-AB-002', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'White Peach Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-WP-003', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Teal Blue Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-TB-004', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Steel Blue Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-SB-005', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Black & White Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-BW-006', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Mustard Yellow White Embroidered 2-Piece Suit', 'sku' => 'MM-MY-007', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Mauve White Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-MC-008', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Emerald Green Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-EG-009', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Navy Blue White Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-NB-010', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Rust Orange Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-RO-011', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Lilac Purple Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-LP-012', 'price' => 1999.00, 'stock' => 5],
-            ['title' => 'Classic Beige Embroidered Cotton 2-Piece Suit', 'sku' => 'MM-CB-013', 'price' => 1999.00, 'stock' => 5]
-        ];
-
-        $catId = null;
-        try {
-            $catStmt = $this->pdo->prepare("SELECT id FROM categories WHERE name = ? LIMIT 1");
-            $catStmt->execute(['Women Collection']);
-            $cat = $catStmt->fetch();
-            if ($cat) {
-                $catId = $cat['id'];
-            } else {
-                $cIns = $this->pdo->prepare("INSERT INTO categories (name, description) VALUES (?, ?)");
-                $cIns->execute(['Women Collection', 'Embroidered 2-Piece Cotton Suits']);
-                $catId = $this->pdo->lastInsertId();
-            }
-        } catch (Exception $e) {}
-
-        $imported = 0;
-        foreach ($mmProducts as $p) {
-            // Check if title or sku exists
-            $chk = $this->pdo->prepare("SELECT id FROM products WHERE sku = ? OR title = ? LIMIT 1");
-            $chk->execute([$p['sku'], $p['title']]);
-            $row = $chk->fetch();
-
-            if ($row) {
-                $upd = $this->pdo->prepare("UPDATE products SET title = ?, sku = ?, category_id = ?, selling_price = ?, stock_qty = ?, is_active = 1 WHERE id = ?");
-                $upd->execute([$p['title'], $p['sku'], $catId, $p['price'], $p['stock'], $row['id']]);
-            } else {
-                $ins = $this->pdo->prepare("INSERT INTO products (title, sku, category_id, selling_price, stock_qty, is_active) VALUES (?, ?, ?, ?, ?, 1)");
-                $ins->execute([$p['title'], $p['sku'], $catId, $p['price'], $p['stock']]);
-            }
-            $imported++;
+        // If GraphQL returned an error, return the actual Scora response
+        if (!$result['success']) {
+            return $result;
         }
 
-        $this->cleanupDuplicates();
-        setSetting('store_name', 'MM Official');
-        setSetting('cloud_last_sync', date('d-M-Y h:i A'));
-        $this->logEvent('store_catalog_sync', "Synchronized all {$imported} products for MM_official store", 'success');
-
+        // Empty catalog on Scora
         return [
             'success'  => true,
-            'imported' => $imported,
-            'message'  => "Store catalog synchronized! Loaded all {$imported} products (Stock: 5 each) for MM_official."
+            'imported' => 0,
+            'message'  => "Scora store has 0 products in its catalog."
         ];
     }
 
@@ -286,7 +220,7 @@ class CloudSyncClient {
             }
         }
 
-        // Live GraphQL query to Scora Admin API
+        // Live GraphQL query to Scora Admin API with exact schema fields
         $query = '
             query GetStoreCatalog($limit: Int!) {
                 products(first: $limit) {
@@ -295,16 +229,9 @@ class CloudSyncClient {
                         title
                         handle
                         price
-                        totalInventory
-                        variants(first: 10) {
-                            nodes {
-                                id
-                                title
-                                sku
-                                price
-                                inventoryQuantity
-                            }
-                        }
+                        sku
+                        compareAtPrice
+                        imageUrl
                     }
                 }
             }
@@ -369,11 +296,22 @@ class CloudSyncClient {
 
         $decoded = json_decode($response, true);
 
-        // If token expired (401 / UNAUTHENTICATED), auto-refresh token and retry once
-        if (($httpCode === 401 || (isset($decoded['errors'][0]['extensions']['code']) && $decoded['errors'][0]['extensions']['code'] === 'UNAUTHENTICATED')) && !$retried) {
+        // If token expired (HTTP 401, UNAUTHENTICATED, or "Token expired" message), auto-refresh token and retry once
+        $isExpired = ($httpCode === 401)
+            || (isset($decoded['errors'][0]['extensions']['code']) && in_array($decoded['errors'][0]['extensions']['code'], ['UNAUTHENTICATED', 'FORBIDDEN']))
+            || (isset($decoded['errors'][0]['message']) && stripos($decoded['errors'][0]['message'], 'expired') !== false)
+            || (isset($decoded['errors'][0]['message']) && stripos($decoded['errors'][0]['message'], 'refresh token') !== false);
+
+        if ($isExpired && !$retried) {
             if ($this->refreshAccessToken()) {
                 return $this->query($graphQLQuery, $variables, true);
             }
+            return [
+                'success'   => false,
+                'need_auth' => true,
+                'auth_url'  => 'oauth.php?connect=1',
+                'error'     => 'Token expired. Please click Live Scora Sync to re-authorize.'
+            ];
         }
 
         if ($httpCode >= 400 || !empty($decoded['errors'])) {
@@ -386,8 +324,9 @@ class CloudSyncClient {
     public function logEvent($event, $details, $status = 'info') {
         if (!$this->pdo) return;
         try {
-            $stmt = $this->pdo->prepare("INSERT INTO sync_logs (`event`, `details`, `status`) VALUES (?, ?, ?)");
-            $stmt->execute([$event, is_string($details) ? $details : json_encode($details), $status]);
+            $storeId = currentStoreId();
+            $stmt = $this->pdo->prepare("INSERT INTO sync_logs (`store_id`, `event`, `details`, `status`) VALUES (?, ?, ?, ?)");
+            $stmt->execute([$storeId, $event, is_string($details) ? $details : json_encode($details), $status]);
         } catch (Exception $e) {}
     }
 }

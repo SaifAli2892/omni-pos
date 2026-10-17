@@ -9,6 +9,7 @@ require_once __DIR__ . '/includes/header.php';
 
 $message = '';
 $messageType = 'success';
+$currentStoreId = currentStoreId();
 
 // Handle Add / Edit Product
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_product'])) {
@@ -34,16 +35,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_product'])) {
                         title = ?, barcode = ?, sku = ?, category_id = ?, 
                         cost_price = ?, selling_price = ?, stock_qty = ?, alert_qty = ?, 
                         scora_product_id = ?
-                    WHERE id = ?
+                    WHERE id = ? AND store_id = ?
                 ");
-                $stmt->execute([$title, $barcode, $sku, $categoryId, $costPrice, $sellPrice, $stockQty, $alertQty, $scoraId, $id]);
+                $stmt->execute([$title, $barcode, $sku, $categoryId, $costPrice, $sellPrice, $stockQty, $alertQty, $scoraId, $id, $currentStoreId]);
                 $message = 'Product updated successfully!';
             } else {
                 $stmt = $pdo->prepare("
-                    INSERT INTO products (title, barcode, sku, category_id, cost_price, selling_price, stock_qty, alert_qty, scora_product_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO products (store_id, title, barcode, sku, category_id, cost_price, selling_price, stock_qty, alert_qty, scora_product_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
-                $stmt->execute([$title, $barcode, $sku, $categoryId, $costPrice, $sellPrice, $stockQty, $alertQty, $scoraId]);
+                $stmt->execute([$currentStoreId, $title, $barcode, $sku, $categoryId, $costPrice, $sellPrice, $stockQty, $alertQty, $scoraId]);
                 $message = 'Product added successfully!';
             }
         } catch (Exception $e) {
@@ -57,8 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_product'])) {
 if (isset($_GET['delete'])) {
     $delId = (int)$_GET['delete'];
     try {
-        $stmt = $pdo->prepare("UPDATE products SET is_active = 0 WHERE id = ?");
-        $stmt->execute([$delId]);
+        $stmt = $pdo->prepare("UPDATE products SET is_active = 0 WHERE id = ? AND store_id = ?");
+        $stmt->execute([$delId, $currentStoreId]);
         $message = 'Product removed from active catalog.';
     } catch (Exception $e) {
         $message = 'Delete error: ' . $e->getMessage();
@@ -69,15 +70,17 @@ if (isset($_GET['delete'])) {
 // Fetch Categories for dropdown
 $categories = [];
 try {
-    $categories = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
+    $cStmt = $pdo->prepare("SELECT * FROM categories WHERE store_id = ? ORDER BY name ASC");
+    $cStmt->execute([$currentStoreId]);
+    $categories = $cStmt->fetchAll();
 } catch (Exception $e) {}
 
 // Search & Filter
 $search = trim($_GET['q'] ?? '');
 $filterCat = (int)($_GET['cat'] ?? 0);
 
-$query = "SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.is_active = 1";
-$params = [];
+$query = "SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.store_id = ? AND p.is_active = 1";
+$params = [$currentStoreId];
 
 if (!empty($search)) {
     $query .= " AND (p.title LIKE ? OR p.barcode LIKE ? OR p.sku LIKE ?)";

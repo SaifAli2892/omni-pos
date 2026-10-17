@@ -9,6 +9,7 @@ require_once __DIR__ . '/includes/header.php';
 
 $message = '';
 $messageType = 'success';
+$currentStoreId = currentStoreId();
 
 // Handle Add / Edit Category
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_category'])) {
@@ -22,12 +23,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_category'])) {
     } else {
         try {
             if ($id) {
-                $stmt = $pdo->prepare("UPDATE categories SET name = ?, slug = ? WHERE id = ?");
-                $stmt->execute([$name, $slug, $id]);
+                $stmt = $pdo->prepare("UPDATE categories SET name = ?, slug = ? WHERE id = ? AND store_id = ?");
+                $stmt->execute([$name, $slug, $id, $currentStoreId]);
                 $message = 'Category updated successfully!';
             } else {
-                $stmt = $pdo->prepare("INSERT INTO categories (name, slug) VALUES (?, ?)");
-                $stmt->execute([$name, $slug]);
+                $stmt = $pdo->prepare("INSERT INTO categories (store_id, name, slug) VALUES (?, ?, ?)");
+                $stmt->execute([$currentStoreId, $name, $slug]);
                 $message = 'Category created successfully!';
             }
         } catch (Exception $e) {
@@ -41,8 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_category'])) {
 if (isset($_GET['delete'])) {
     $delId = (int)$_GET['delete'];
     try {
-        $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ?");
-        $stmt->execute([$delId]);
+        $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ? AND store_id = ?");
+        $stmt->execute([$delId, $currentStoreId]);
         $message = 'Category deleted successfully!';
     } catch (Exception $e) {
         $message = 'Cannot delete category in use by products.';
@@ -56,11 +57,14 @@ try {
     $sql = "
         SELECT c.*, COUNT(p.id) as product_count 
         FROM categories c 
-        LEFT JOIN products p ON c.id = p.category_id AND p.is_active = 1 
+        LEFT JOIN products p ON c.id = p.category_id AND p.store_id = ? AND p.is_active = 1 
+        WHERE c.store_id = ?
         GROUP BY c.id 
         ORDER BY c.name ASC
     ";
-    $categories = $pdo->query($sql)->fetchAll();
+    $cStmt = $pdo->prepare($sql);
+    $cStmt->execute([$currentStoreId, $currentStoreId]);
+    $categories = $cStmt->fetchAll();
 } catch (Exception $e) {}
 ?>
 
