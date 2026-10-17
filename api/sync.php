@@ -153,11 +153,9 @@ if ($action === 'test_rest') {
 }
 
 if ($action === 'inspect_logs') {
-    $cols = $pdo->query("DESCRIBE products")->fetchAll(PDO::FETCH_COLUMN);
-    $lastErr = $pdo->query("SHOW WARNINGS")->fetchAll();
-    $p53 = $pdo->query("SELECT * FROM products WHERE store_id = '53'")->fetchAll();
-    $allP = $pdo->query("SELECT id, store_id, title, scora_product_id FROM products ORDER BY id DESC LIMIT 15")->fetchAll();
-    echo json_encode(['columns' => $cols, 'p53' => $p53, 'recent_products' => $allP]);
+    $now = date('Y-m-d H:i:s');
+    $lastLogs = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 5")->fetchAll();
+    echo json_encode(['server_now' => $now, 'last_logs' => $lastLogs]);
     exit;
 }
 
