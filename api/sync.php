@@ -152,4 +152,11 @@ if ($action === 'test_rest') {
     exit;
 }
 
+if ($action === 'inspect_logs') {
+    $s = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 20")->fetchAll();
+    $counts = $pdo->query("SELECT store_id, COUNT(*) as cnt FROM products GROUP BY store_id")->fetchAll();
+    echo json_encode(['logs' => $s, 'product_counts' => $counts]);
+    exit;
+}
+
 echo json_encode(['success' => false, 'error' => 'Invalid action']);
