@@ -118,4 +118,38 @@ if ($action === 'inspect_scopes') {
     exit;
 }
 
+if ($action === 'test_rest') {
+    $targetUrl = $_POST['url'] ?? $_GET['url'] ?? '';
+    $method = $_POST['method'] ?? 'GET';
+    $postBody = $_POST['body'] ?? null;
+    $token = $client->getAccessToken();
+
+    $ch = curl_init($targetUrl);
+    $headers = [
+        'Authorization: Bearer ' . $token,
+        'Content-Type: application/json',
+        'Accept: application/json'
+    ];
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_TIMEOUT => 8
+    ]);
+    if ($postBody) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, is_array($postBody) ? json_encode($postBody) : $postBody);
+    }
+    $resBody = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    echo json_encode([
+        'url' => $targetUrl,
+        'http_code' => $httpCode,
+        'response' => $resBody
+    ]);
+    exit;
+}
+
 echo json_encode(['success' => false, 'error' => 'Invalid action']);
