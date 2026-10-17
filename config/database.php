@@ -138,14 +138,25 @@ function getStoreAccessToken($storeId = null) {
         }
     } catch (Exception $e) {}
 
-    // Fallback if settings table matches current active store
-    $globalStoreId = (string)getSetting('scora_store_id', '');
-    if ($globalStoreId === $storeId) {
-        $tok = getSetting('cloud_access_token', '');
-        if (!empty($tok)) return $tok;
-    }
-
     return null;
+}
+
+// Get the actual store name for a store
+function getStoreName($storeId = null) {
+    global $pdo;
+    $storeId = (string)($storeId ?: currentStoreId());
+    if (!$pdo || empty($storeId)) {
+        return $_SESSION['scora_store_name'] ?? 'My Store';
+    }
+    try {
+        $stmt = $pdo->prepare("SELECT store_name FROM store_tokens WHERE store_id = ? LIMIT 1");
+        $stmt->execute([$storeId]);
+        $row = $stmt->fetch();
+        if ($row && !empty($row['store_name'])) {
+            return $row['store_name'];
+        }
+    } catch (Exception $e) {}
+    return $_SESSION['scora_store_name'] ?? getSetting('store_name', 'My Store POS');
 }
 
 // Save isolated token strictly for a store
@@ -182,19 +193,71 @@ function removeStoreToken($storeId) {
     }
 }
 
+// Robust parser for Scora embedded session token (JWT)
+function parseScoraContext($raw) {
+    if (empty($raw) || !is_string($raw)) return [];
+    $parts = explode('.', $raw);
+    $data = [];
+    foreach ($parts as $part) {
+        $clean = strtr($part, '-_', '+/');
+        $pad = strlen($clean) % 4;
+        if ($pad > 0) $clean .= str_repeat('=', 4 - $pad);
+        $decoded = @base64_decode($clean);
+        if ($decoded !== false) {
+            $json = @json_decode($decoded, true);
+            if (is_array($json)) {
+                $data = array_merge($data, $json);
+            }
+        }
+    }
+    return $data;
+}
+
 // Get the active store ID (multi-tenant context)
 function currentStoreId() {
     if (session_status() === PHP_SESSION_NONE) {
         @session_start();
     }
+
+    // 1. Direct query parameter
     if (!empty($_GET['store_id'])) {
-        $_SESSION['scora_store_id'] = (string)$_GET['store_id'];
-        return (string)$_GET['store_id'];
+        $sid = (string)$_GET['store_id'];
+        $_SESSION['scora_store_id'] = $sid;
+        return $sid;
     }
+
+    // 2. Scora Embedded Context (JWT)
+    if (!empty($_GET['scora_context'])) {
+        $ctx = parseScoraContext($_GET['scora_context']);
+        $candidateId = $ctx['store_id'] ?? $ctx['shop_id'] ?? null;
+        if (!$candidateId && !empty($ctx['dest'])) {
+            if (preg_match('/\/(\d+)$/', $ctx['dest'], $m)) $candidateId = $m[1];
+        }
+        if (!$candidateId && !empty($ctx['sub'])) {
+            if (preg_match('/\/(\d+)$/', $ctx['sub'], $m)) $candidateId = $m[1];
+        }
+        if (!empty($candidateId)) {
+            $sid = (string)$candidateId;
+            $_SESSION['scora_store_id'] = $sid;
+            if (!empty($ctx['store_name']) || !empty($ctx['shop_name'])) {
+                $_SESSION['scora_store_name'] = $ctx['store_name'] ?? $ctx['shop_name'];
+            }
+            if (!empty($ctx['installation_id'])) {
+                $_SESSION['scora_installation_id'] = (string)$ctx['installation_id'];
+                setSetting('scora_installation_id', (string)$ctx['installation_id']);
+            }
+            return $sid;
+        }
+    }
+
+    // 3. Active session store
     if (!empty($_SESSION['scora_store_id'])) {
         return (string)$_SESSION['scora_store_id'];
     }
-    return (string)getSetting('scora_store_id', '56');
+
+    // 4. Stored setting if available
+    $savedStore = (string)getSetting('scora_store_id', '');
+    return $savedStore;
 }
 
 // Completely wipe all data belonging to a store (used upon app uninstall or GDPR redact)
@@ -291,7 +354,10 @@ try {
             $pdo->exec("ALTER TABLE sync_logs ADD INDEX idx_store (store_id)");
         }
 
-        // Automatic cleanup of cross-pollinated LEO shampoo items from Store 56
-        $pdo->exec("DELETE FROM products WHERE store_id = '56' AND (title LIKE 'LEO Organic%' OR title LIKE '%hair and skin care%' OR title LIKE 'Haircare package' OR title LIKE 'skin care package')");
+        // Purge all cross-pollinated test shampoo products from all stores
+        $pdo->exec("DELETE FROM products WHERE title LIKE 'LEO Organic%' OR title LIKE '%hair and skin care%' OR title LIKE 'Haircare package' OR title LIKE 'skin care package'");
+
+        // Delete global fallback access token and store id from settings so OAuth is strictly per-store
+        $pdo->exec("DELETE FROM settings WHERE `key` IN ('cloud_access_token', 'scora_store_id')");
     }
 } catch (Exception $e) {}

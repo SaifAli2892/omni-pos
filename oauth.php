@@ -94,15 +94,12 @@ if (!empty($code)) {
         $shopInfo = $client->detectShopDetails($token);
         
         $detectedStoreId   = $shopInfo['store_id'] ?? $_SESSION['oauth_requested_store_id'] ?? currentStoreId();
-        $detectedStoreName = $shopInfo['store_name'] ?? getSetting('store_name', 'MM Official POS');
+        $detectedStoreName = $shopInfo['store_name'] ?? ('Store ' . $detectedStoreId);
 
         // Store token strictly isolated for this store
         setStoreAccessToken($detectedStoreId, $token, $refreshToken, $detectedStoreName);
-        setSetting('scora_store_id', $detectedStoreId);
-        setSetting('store_name', $detectedStoreName);
-        setSetting('cloud_local_mode', '0');
-        setSetting('cloud_store_domain', 'scora.com.pk');
-        $_SESSION['scora_store_id'] = $detectedStoreId;
+        $_SESSION['scora_store_id']   = $detectedStoreId;
+        $_SESSION['scora_store_name'] = $detectedStoreName;
 
         // Pull full live store catalog via GraphQL for this store
         $syncRes = $client->importStoreProducts($detectedStoreId);

@@ -283,56 +283,20 @@ try {
             <button type="button" onclick="document.getElementById('connect-store-modal').classList.add('hidden')" class="text-slate-400 hover:text-slate-900 font-bold text-lg">&times;</button>
         </div>
 
-        <div class="space-y-5">
-            <!-- Method A: 1-Click Official OAuth -->
-            <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
+        <div class="space-y-4">
+            <!-- 1-Click Official OAuth -->
+            <div class="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-3">
                 <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-emerald-950 uppercase tracking-wide">Method 1: 1-Click OAuth (Recommended)</span>
-                    <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-200 text-emerald-900">Auto</span>
+                    <span class="text-xs font-bold text-emerald-950 uppercase tracking-wide">1-Click Scora OAuth 2.0</span>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-200 text-emerald-900">Official</span>
                 </div>
                 <p class="text-xs text-emerald-800 leading-relaxed">
-                    Automatically connects to Scora Admin, fetches live catalog for this store, and enables real-time inventory synchronization.
+                    Connects directly to your Scora Store Admin, automatically generates this store's private OAuth credentials, and pulls your real catalog in real-time.
                 </p>
-                <div class="pt-1">
-                    <a href="oauth.php?connect=1&store_id=<?php echo urlencode($currentStoreId); ?>" class="w-full py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition shadow-sm">
-                        <span>⚡ 1-Click Authorize Store</span>
+                <div class="pt-2">
+                    <a href="oauth.php?connect=1<?php echo !empty($currentStoreId) ? '&store_id=' . urlencode($currentStoreId) : ''; ?>" class="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition shadow-sm">
+                        <span>⚡ 1-Click Authorize Store via Scora</span>
                     </a>
-                </div>
-            </div>
-
-            <div class="relative flex items-center justify-center">
-                <div class="border-t border-slate-200 w-full"></div>
-                <span class="bg-white px-3 text-[11px] font-bold uppercase text-slate-400 shrink-0">OR (Developer Portal)</span>
-                <div class="border-t border-slate-200 w-full"></div>
-            </div>
-
-            <!-- Method B: Developer Portal Test Token -->
-            <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-slate-900 uppercase tracking-wide">Method 2: Developer Access Token</span>
-                    <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-800">Manual</span>
-                </div>
-                <p class="text-xs text-slate-500 leading-relaxed">
-                    Paste the 30-day Test Access Token from your Scora Developer Portal.
-                    <span class="block text-[11px] text-amber-700 mt-1 font-medium bg-amber-50 p-2 rounded border border-amber-200">
-                        ⚠️ <strong>Important:</strong> In Scora Developer Portal, verify that the <strong>"STORE CONTEXT"</strong> dropdown matches <strong><?php echo htmlspecialchars($storeName); ?></strong> before generating the token.
-                    </span>
-                </p>
-                <div>
-                    <input 
-                        type="text" 
-                        id="manual-access-token" 
-                        placeholder="Paste Scora access token here (e.g. b6IvW9ab...)" 
-                        class="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-900 text-xs font-mono focus:outline-none focus:border-emerald-600"
-                    >
-                </div>
-                <div class="flex gap-2">
-                    <button type="button" onclick="executeManualToken()" id="btn-save-token" class="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition">
-                        Verify & Link Token
-                    </button>
-                    <button type="button" onclick="document.getElementById('connect-store-modal').classList.add('hidden')" class="px-4 py-2.5 rounded-xl bg-slate-200 text-slate-700 font-semibold text-xs hover:bg-slate-300 transition">
-                        Cancel
-                    </button>
                 </div>
             </div>
         </div>
@@ -374,38 +338,6 @@ async function triggerAutoSync() {
             btn.disabled = false;
             btn.innerText = 'Re-Sync Store Catalog';
         }
-    }
-}
-
-async function executeManualToken() {
-    const token = document.getElementById('manual-access-token').value.trim();
-    if (!token) {
-        window.showToast('Please paste a Scora access token', 'error');
-        return;
-    }
-
-    const btn = document.getElementById('btn-save-token');
-    btn.disabled = true;
-    btn.innerText = 'Validating with Scora...';
-
-    try {
-        const res = await fetch('api/sync.php?action=save_token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: token, store_id: activeStoreId })
-        });
-        const data = await res.json();
-        if (data.success) {
-            window.showToast(data.message, 'success');
-            setTimeout(() => window.location.href = 'index.php?store_id=' + encodeURIComponent(data.store_id || activeStoreId), 1200);
-        } else {
-            window.showToast(data.error || 'Failed to validate token with Scora', 'error');
-        }
-    } catch (e) {
-        window.showToast('Network error communicating with Scora API', 'error');
-    } finally {
-        btn.disabled = false;
-        btn.innerText = 'Verify & Link Token';
     }
 }
 

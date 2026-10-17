@@ -44,7 +44,7 @@ $taxRate = getSetting('tax_rate', '0');
 <script>
     window.storeTaxRate = <?php echo json_encode($taxRate); ?>;
     window.storeSettings = {
-        name: <?php echo json_encode(getSetting('store_name', 'Omni Retail Mart')); ?>,
+        name: <?php echo json_encode($storeName); ?>,
         address: <?php echo json_encode(getSetting('store_address', 'Lahore, Pakistan')); ?>,
         phone: <?php echo json_encode(getSetting('store_phone', '0300-1234567')); ?>,
         footer: <?php echo json_encode(getSetting('receipt_footer', 'Thank you for your business!')); ?>
@@ -81,7 +81,7 @@ $taxRate = getSetting('tax_rate', '0');
     </div>
 
     <div class="flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-100 pt-1.5">
-        <span class="truncate">MM_official</span>
+        <span class="truncate"><?php echo htmlspecialchars($storeName); ?></span>
         <button type="button" onclick="openTerminalFullscreen()" class="text-emerald-700 font-bold hover:underline shrink-0">
             Open Fullscreen &rarr;
         </button>
@@ -180,7 +180,18 @@ function openTerminalFullscreen() {
 
         <!-- Products Grid -->
         <div id="products-grid" class="flex-1 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 overflow-y-auto pr-1">
-            <?php if (empty($products)): ?>
+            <?php if (empty($cloudToken)): ?>
+                <div class="col-span-full py-16 text-center bg-white rounded-2xl border border-emerald-200 p-8 shadow-sm my-auto max-w-md mx-auto">
+                    <div class="w-14 h-14 mx-auto mb-3 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-2xl font-black">
+                        ⚡
+                    </div>
+                    <h3 class="text-lg font-black text-slate-900 mb-1">Connect <?php echo htmlspecialchars($storeName ?: 'Your Store'); ?></h3>
+                    <p class="text-xs text-slate-500 mb-6">Authorize OmniPOS via Scora OAuth 2.0 to import your store's live catalog and enable real-time inventory synchronization.</p>
+                    <a href="oauth.php?connect=1<?php echo !empty($currentStoreId) ? '&store_id=' . urlencode($currentStoreId) : ''; ?>" class="w-full py-3 px-5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition shadow-md flex items-center justify-center gap-2">
+                        <span>⚡ 1-Click Authorize with Scora</span>
+                    </a>
+                </div>
+            <?php elseif (empty($products)): ?>
                 <div class="col-span-full py-20 text-center bg-white rounded-2xl border border-slate-200 p-8 shadow-sm my-auto">
                     <h3 class="text-base font-bold text-slate-900 mb-1">Product Catalog is Empty</h3>
                     <p class="text-xs text-slate-500 max-w-sm mx-auto mb-5">There are no products in your catalog yet. Pull your live store items or add manually.</p>

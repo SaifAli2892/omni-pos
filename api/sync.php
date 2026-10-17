@@ -46,50 +46,7 @@ if ($action === 'import_catalog') {
     exit;
 }
 
-if ($action === 'save_token') {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $token = trim($input['token'] ?? '');
-    $targetStoreId = (string)($input['store_id'] ?? currentStoreId());
 
-    if (empty($token)) {
-        echo json_encode(['success' => false, 'error' => 'Please provide an access token.']);
-        exit;
-    }
-
-    $shopInfo = $client->detectShopDetails($token);
-    if (!$shopInfo) {
-        echo json_encode([
-            'success' => false,
-            'error' => 'Invalid or expired Scora token. Could not authenticate with Scora GraphQL API.'
-        ]);
-        exit;
-    }
-
-    $detectedStoreId   = $shopInfo['store_id'];
-    $detectedStoreName = $shopInfo['store_name'];
-
-    // Save token strictly to detected store
-    setStoreAccessToken($detectedStoreId, $token, null, $detectedStoreName);
-    setSetting('scora_store_id', $detectedStoreId);
-    setSetting('store_name', $detectedStoreName);
-
-    // Sync products for detected store
-    $importRes = $client->importStoreProducts($detectedStoreId);
-
-    $warning = '';
-    if (!empty($targetStoreId) && $targetStoreId !== $detectedStoreId) {
-        $warning = " (Note: This token is for '{$detectedStoreName}' Store {$detectedStoreId}. In Scora Developer Portal, select 'STORE CONTEXT' as your desired store to get its token).";
-    }
-
-    echo json_encode([
-        'success'    => true,
-        'store_id'   => $detectedStoreId,
-        'store_name' => $detectedStoreName,
-        'imported'   => $importRes['imported'] ?? 0,
-        'message'    => "Connected to {$detectedStoreName}! Imported " . ($importRes['imported'] ?? 0) . " live products." . $warning
-    ]);
-    exit;
-}
 
 if ($action === 'cleanup_duplicates') {
     $res = $client->cleanupDuplicates();

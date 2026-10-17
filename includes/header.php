@@ -6,31 +6,11 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/../config/database.php';
 
 $currentStoreId = currentStoreId();
-$storeName      = getSetting('store_name', 'MM Official POS');
-$cloudToken     = getStoreAccessToken($currentStoreId);
+$storeName      = getStoreName($currentStoreId);
+$cloudToken     = !empty($currentStoreId) ? getStoreAccessToken($currentStoreId) : null;
 $currency       = getSetting('currency_symbol', 'Rs.');
 $user           = currentUser();
 $currentPage    = basename($_SERVER['PHP_SELF']);
-
-// Parse Scora POS context if opened from Scora Admin
-if (!empty($_GET['scora_context'])) {
-    $parts = explode('.', $_GET['scora_context']);
-    if (!empty($parts[0])) {
-        $decoded = base64_decode(str_pad(strtr($parts[0], '-_', '+/'), strlen($parts[0]) % 4, '=', STR_PAD_RIGHT));
-        $ctx = json_decode($decoded, true);
-        if ($ctx && !empty($ctx['store_id'])) {
-            $sid = (string)$ctx['store_id'];
-            $_SESSION['scora_store_id'] = $sid;
-            setSetting('scora_store_id', $sid);
-            setSetting('scora_installation_id', (string)($ctx['installation_id'] ?? ''));
-            $currentStoreId = $sid;
-            $cloudToken = getStoreAccessToken($sid);
-            if (getSetting('store_name', '') === 'Omni Retail Mart' || getSetting('store_name', '') === '') {
-                setSetting('store_name', 'MM Official POS');
-            }
-        }
-    }
-}
 
 // Allow iframe embedding inside Scora Admin and POS surfaces
 header('X-Frame-Options: ALLOWALL');
