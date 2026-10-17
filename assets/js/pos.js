@@ -4,7 +4,7 @@
  */
 
 let cart = [];
-let currencySymbol = 'Rs.';
+let currencySymbol = window.storeCurrencySymbol || '$';
 
 // Synthesize pleasant Scanner Beep using Web Audio API
 function playScanBeep(type = 'success') {
@@ -142,6 +142,7 @@ function renderCart() {
     
     if (!listEl) return;
 
+    if (window.storeCurrencySymbol) currencySymbol = window.storeCurrencySymbol;
     const totals = calculateTotals();
 
     if (countBadge) {
@@ -306,6 +307,7 @@ window.processCheckout = async function() {
 function formatThermalReceipt(sale, items, totals) {
     const container = document.getElementById('thermal-receipt');
     if (!container) return;
+    if (window.storeCurrencySymbol) currencySymbol = window.storeCurrencySymbol;
 
     const storeName = window.storeSettings?.name || 'Scora Retail Mart';
     const storeAddress = window.storeSettings?.address || 'Lahore, Pakistan';

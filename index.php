@@ -43,6 +43,7 @@ $taxRate = getSetting('tax_rate', '0');
 
 <script>
     window.currentStoreId = <?php echo json_encode((string)$currentStoreId); ?>;
+    window.storeCurrencySymbol = <?php echo json_encode($currency); ?>;
     window.storeTaxRate = <?php echo json_encode($taxRate); ?>;
     window.storeSettings = {
         name: <?php echo json_encode($storeName); ?>,

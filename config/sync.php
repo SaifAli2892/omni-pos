@@ -225,7 +225,51 @@ class CloudSyncClient {
             ];
         }
 
-        // Attempt live GraphQL query
+        // 1. Live Currency Detection from Scora Shop API
+        try {
+            $shopRes = $this->query('query { shop { name currency } }');
+            if (!empty($shopRes['data']['shop']['currency'])) {
+                $curCode = strtoupper(trim($shopRes['data']['shop']['currency']));
+                $symMap = [
+                    'USD' => '$',
+                    'PKR' => 'Rs.',
+                    'EUR' => '€',
+                    'GBP' => '£',
+                    'CAD' => 'CA$',
+                    'AUD' => 'AU$',
+                    'AED' => 'AED ',
+                    'SAR' => 'SAR ',
+                    'INR' => '₹'
+                ];
+                $sym = $symMap[$curCode] ?? $curCode;
+                try {
+                    $this->pdo->prepare("UPDATE store_tokens SET currency = ?, currency_symbol = ? WHERE store_id = ?")->execute([$curCode, $sym, $storeId]);
+                } catch (Exception $e) {}
+                setSetting('currency_symbol', $sym);
+                setSetting('store_currency', $curCode);
+                $_SESSION['currency_symbol'] = $sym;
+                $_SESSION['store_currency'] = $curCode;
+            }
+        } catch (Exception $e) {}
+
+        // 2. Live Inventory Mapping from Scora inventoryItems API
+        $stockByProduct = [];
+        try {
+            $invRes = $this->query('query { inventoryItems(first: 100) { nodes { id sku productId availableQuantity } } }');
+            if (!empty($invRes['data']['inventoryItems']['nodes'])) {
+                foreach ($invRes['data']['inventoryItems']['nodes'] as $item) {
+                    $qty = (int)($item['availableQuantity'] ?? 0);
+                    if (!empty($item['productId'])) {
+                        $stockByProduct[$item['productId']] = $qty;
+                    }
+                    if (!empty($item['sku'])) {
+                        $stockByProduct[$item['sku']] = $qty;
+                    }
+                }
+            }
+        } catch (Exception $e) {}
+
+        // 3. Attempt live GraphQL query for product catalog
         $result = $this->fetchProducts(100);
         $nodes = ($result['success'] && !empty($result['data']['products']['nodes'])) ? $result['data']['products']['nodes'] : [];
 
@@ -241,21 +285,8 @@ class CloudSyncClient {
                     $costPrice = !empty($prod['compareAtPrice']) ? (float)$prod['compareAtPrice'] : ($price > 0 ? round($price * 0.7, 2) : 0);
                     $imageUrl = !empty($prod['imageUrl']) ? ('https://scora.com.pk/' . ltrim($prod['imageUrl'], '/')) : null;
 
-                    // Dynamic stock extracted from live Scora API response
-                    $stockQty = 0;
-                    if (isset($prod['stock'])) {
-                        $stockQty = (int)$prod['stock'];
-                    } elseif (isset($prod['inventoryQuantity'])) {
-                        $stockQty = (int)$prod['inventoryQuantity'];
-                    } elseif (isset($prod['totalInventory'])) {
-                        $stockQty = (int)$prod['totalInventory'];
-                    } elseif (isset($prod['quantity'])) {
-                        $stockQty = (int)$prod['quantity'];
-                    } elseif (!empty($prod['variants']['nodes'][0]['inventoryQuantity'])) {
-                        $stockQty = (int)$prod['variants']['nodes'][0]['inventoryQuantity'];
-                    } elseif (!empty($prod['variants']['nodes'][0]['stock'])) {
-                        $stockQty = (int)$prod['variants']['nodes'][0]['stock'];
-                    }
+                    // Exact dynamic stock from live Scora API inventoryItems
+                    $stockQty = $stockByProduct[$cloudId] ?? $stockByProduct[$sku] ?? (int)($prod['stock'] ?? $prod['inventoryQuantity'] ?? 0);
 
                     $variantId = null;
                     if (!empty($prod['variants']['nodes'][0]['id'])) {

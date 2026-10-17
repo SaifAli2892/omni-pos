@@ -8,7 +8,7 @@ require_once __DIR__ . '/../config/database.php';
 $currentStoreId = currentStoreId();
 $storeName      = getStoreName($currentStoreId);
 $cloudToken     = !empty($currentStoreId) ? getStoreAccessToken($currentStoreId) : null;
-$currency       = getSetting('currency_symbol', 'Rs.');
+$currency       = getStoreCurrencySymbol($currentStoreId);
 $user           = currentUser();
 $currentPage    = basename($_SERVER['PHP_SELF']);
 

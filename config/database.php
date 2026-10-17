@@ -156,7 +156,21 @@ function getStoreName($storeId = null) {
             return $row['store_name'];
         }
     } catch (Exception $e) {}
-    return $_SESSION['scora_store_name'] ?? getSetting('store_name', 'My Store POS');
+}
+
+// Get the store currency symbol
+function getStoreCurrencySymbol($storeId = null) {
+    global $pdo;
+    $storeId = (string)($storeId ?: currentStoreId());
+    if ($pdo && !empty($storeId)) {
+        try {
+            $stmt = $pdo->prepare("SELECT currency_symbol FROM store_tokens WHERE store_id = ? LIMIT 1");
+            $stmt->execute([$storeId]);
+            $sym = $stmt->fetchColumn();
+            if (!empty($sym)) return $sym;
+        } catch (Exception $e) {}
+    }
+    return $_SESSION['currency_symbol'] ?? getSetting('currency_symbol', '$');
 }
 
 // Save isolated token strictly for a store
@@ -323,10 +337,17 @@ try {
                 store_domain VARCHAR(150) NULL,
                 access_token TEXT NOT NULL,
                 refresh_token TEXT NULL,
+                currency VARCHAR(10) NULL DEFAULT 'USD',
+                currency_symbol VARCHAR(10) NULL DEFAULT '$',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+
+        $stCur = $pdo->query("SHOW COLUMNS FROM store_tokens LIKE 'currency'")->fetch();
+        if (!$stCur) {
+            $pdo->exec("ALTER TABLE store_tokens ADD COLUMN currency VARCHAR(10) NULL DEFAULT 'USD', ADD COLUMN currency_symbol VARCHAR(10) NULL DEFAULT '$'");
+        }
 
         $pCols = $pdo->query("SHOW COLUMNS FROM products LIKE 'store_id'")->fetch();
         if (!$pCols) {
