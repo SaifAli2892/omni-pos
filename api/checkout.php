@@ -4,6 +4,14 @@
  * Handles transaction, inventory deduction, Khata update, and real-time cloud sync
  */
 
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
 header('Content-Type: application/json');
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/sync.php';
@@ -20,6 +28,7 @@ if (!$input || empty($input['items'])) {
     exit;
 }
 
+$storeId       = (string)($input['store_id'] ?? $_GET['store_id'] ?? currentStoreId());
 $customerId    = !empty($input['customer_id']) ? (int)$input['customer_id'] : 1; // 1 = Walk-in
 $paymentMethod = $input['payment_method'] ?? 'cash';
 $subtotal      = (float)($input['subtotal'] ?? 0);
@@ -42,13 +51,13 @@ try {
     // 1. Insert into sales table
     $stmt = $pdo->prepare("
         INSERT INTO sales (
-            invoice_no, customer_id, cashier_id, subtotal, discount,
+            store_id, invoice_no, customer_id, cashier_id, subtotal, discount,
             tax_amount, total_amount, paid_amount, change_amount,
             payment_method, status, scora_sync_status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'pending', ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'pending', ?)
     ");
     $stmt->execute([
-        $invoiceNo, $customerId, $cashierId, $subtotal, $discount,
+        $storeId, $invoiceNo, $customerId, $cashierId, $subtotal, $discount,
         $taxAmount, $totalAmount, $paidAmount, $changeAmount,
         $paymentMethod, $notes
     ]);
@@ -114,18 +123,25 @@ try {
 
     // 4. Background Real-time Cloud API Synchronization
     $cloudSyncResult = 'local_only';
-    $syncClient = new CloudSyncClient($pdo);
-    if ($syncClient->isConfigured() && !empty($cloudItemsToSync)) {
+    $syncClient = new CloudSyncClient($pdo, $storeId);
+    if (!empty($cloudItemsToSync) && !empty($syncClient->getAccessToken())) {
         $syncSuccess = true;
+        $syncErrors = [];
         foreach ($cloudItemsToSync as $sItem) {
             $res = $syncClient->adjustInventory($sItem['product_id'], $sItem['variant_id'], $sItem['delta']);
-            if (!$res['success']) {
+            if (empty($res['success'])) {
                 $syncSuccess = false;
+                $syncErrors[] = $res['error'] ?? 'Stock deduction failed';
             }
         }
         $cloudSyncResult = $syncSuccess ? 'synced' : 'failed';
         $updateSync = $pdo->prepare("UPDATE sales SET scora_sync_status = ? WHERE id = ?");
         $updateSync->execute([$cloudSyncResult, $saleId]);
+        if (!$syncSuccess) {
+            $syncClient->logEvent('stock_sync_error', "Stock sync error on invoice {$invoiceNo}: " . implode('; ', $syncErrors), 'error');
+        } else {
+            $syncClient->logEvent('stock_sync_success', "Successfully deducted online stock for invoice {$invoiceNo}", 'success');
+        }
     }
 
     // 5. Fetch Customer Details for Receipt

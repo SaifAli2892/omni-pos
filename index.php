@@ -42,6 +42,7 @@ $taxRate = getSetting('tax_rate', '0');
 ?>
 
 <script>
+    window.currentStoreId = <?php echo json_encode((string)$currentStoreId); ?>;
     window.storeTaxRate = <?php echo json_encode($taxRate); ?>;
     window.storeSettings = {
         name: <?php echo json_encode($storeName); ?>,
@@ -214,13 +215,18 @@ function openTerminalFullscreen() {
                     ?>
                     <div onclick="window.addToCart(<?php echo $jsonProduct; ?>)" class="product-card group relative p-4 rounded-xl cursor-pointer flex flex-col justify-between <?php echo $isOut ? 'opacity-40 pointer-events-none' : ''; ?>">
                         <div>
-                            <div class="flex items-center justify-between gap-1 mb-2.5">
+                            <?php if (!empty($p['image_url'])): ?>
+                                <div class="w-full h-28 mb-3 rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center border border-slate-100">
+                                    <img src="<?php echo htmlspecialchars($p['image_url']); ?>" alt="<?php echo htmlspecialchars($p['title']); ?>" class="w-full h-full object-contain group-hover:scale-105 transition duration-300" onerror="this.parentElement.style.display='none'">
+                                </div>
+                            <?php endif; ?>
+                            <div class="flex items-center justify-between gap-1 mb-2">
                                 <span class="text-xs font-mono text-slate-600 font-bold"><?php echo htmlspecialchars($p['barcode'] ?: $p['sku'] ?: ''); ?></span>
                                 <span id="stock-badge-<?php echo $p['id']; ?>" class="text-[11px] px-2.5 py-0.5 rounded-full font-bold <?php echo $isOut ? 'bg-rose-50 text-rose-700 border border-rose-200' : ($stock <= 5 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-700'); ?>">
                                     <?php echo $isOut ? 'Sold Out' : "{$stock} In Stock"; ?>
                                 </span>
                             </div>
-                            <h3 class="font-bold text-slate-900 text-sm leading-snug group-hover:text-emerald-700 transition mb-1">
+                            <h3 class="font-bold text-slate-900 text-sm leading-snug group-hover:text-emerald-700 transition mb-1 line-clamp-2">
                                 <?php echo htmlspecialchars($p['title']); ?>
                             </h3>
                             <p class="text-xs text-slate-500 font-medium"><?php echo htmlspecialchars($p['category_name'] ?: 'General'); ?></p>

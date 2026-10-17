@@ -21,6 +21,10 @@ class CloudSyncClient {
         return $this->storeId;
     }
 
+    public function getAccessToken() {
+        return $this->accessToken;
+    }
+
     public function testConnection() {
         return [
             'success' => true,
@@ -325,7 +329,7 @@ class CloudSyncClient {
         ]);
     }
 
-    private function query($graphQLQuery, $variables = [], $retried = false) {
+    public function query($graphQLQuery, $variables = [], $retried = false) {
         if (empty($this->accessToken)) {
             return [
                 'success'   => false,

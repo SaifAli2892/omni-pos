@@ -3,12 +3,21 @@
  * OmniPOS - Cloud Store Auto-Sync API
  */
 
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
 header('Content-Type: application/json');
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/sync.php';
 
 $action = $_GET['action'] ?? '';
-$client = new CloudSyncClient($pdo);
+$storeId = (string)($_GET['store_id'] ?? currentStoreId());
+$client = new CloudSyncClient($pdo, $storeId);
 
 if ($action === 'auto_connect_store') {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -69,16 +78,39 @@ if ($action === 'wipe_store') {
     exit;
 }
 
+if ($action === 'introspect') {
+    $q = 'query {
+        __type(name: "Product") {
+            fields {
+                name
+                type { name kind ofType { name kind } }
+            }
+        }
+        mutationType: __schema {
+            mutationType {
+                fields {
+                    name
+                }
+            }
+        }
+    }';
+    $res = $client->query($q);
+    echo json_encode($res);
+    exit;
+}
+
 if ($action === 'debug') {
-    $sStmt = $pdo->query("SELECT `key`, `value` FROM settings");
-    $settings = $sStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-    $lStmt = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 15");
-    $logs = $lStmt->fetchAll();
-    $pCount = $pdo->query("SELECT count(*) FROM products")->fetchColumn();
+    $storeId = (string)($_GET['store_id'] ?? currentStoreId());
+    $pStmt = $pdo->prepare("SELECT * FROM products WHERE store_id = ?");
+    $pStmt->execute([$storeId]);
+    $storeProducts = $pStmt->fetchAll();
+    
+    $rawGraphQL = $client->fetchProducts(10);
+
     echo json_encode([
-        'settings' => $settings,
-        'logs' => $logs,
-        'product_count' => $pCount
+        'store_id' => $storeId,
+        'products_in_db' => $storeProducts,
+        'raw_graphql' => $rawGraphQL
     ]);
     exit;
 }

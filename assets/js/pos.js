@@ -233,10 +233,12 @@ window.processCheckout = async function() {
     }
 
     try {
-        const response = await fetch('api/checkout.php', {
+        const storeId = window.currentStoreId || new URLSearchParams(window.location.search).get('store_id') || '';
+        const response = await fetch(`api/checkout.php?store_id=${encodeURIComponent(storeId)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                store_id: storeId,
                 customer_id: customerId,
                 payment_method: paymentMethod,
                 subtotal: totals.subtotal,
@@ -289,8 +291,9 @@ window.processCheckout = async function() {
             window.showToast(result.error || 'Checkout failed!', 'error');
         }
     } catch (err) {
+        console.error("Checkout error:", err);
         playScanBeep('error');
-        window.showToast('Network error during checkout!', 'error');
+        window.showToast(err.message || 'Error during checkout!', 'error');
     } finally {
         if (btn) {
             btn.disabled = false;
