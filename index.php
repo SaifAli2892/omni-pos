@@ -134,9 +134,14 @@ function openTerminalFullscreen() {
                     <?php echo htmlspecialchars($cat['name']); ?>
                 </button>
             <?php endforeach; ?>
-            <button type="button" onclick="quickSyncStoreProducts(this)" class="ml-auto px-3.5 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold transition flex items-center gap-1.5 shrink-0 shadow-sm">
-                <span>🔄 Live Scora Sync</span>
-            </button>
+            <div class="ml-auto flex items-center gap-1.5 shrink-0">
+                <button type="button" onclick="quickSyncStoreProducts(this)" class="px-3.5 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold transition flex items-center gap-1.5 shadow-sm">
+                    <span>🔄 Live Scora Sync</span>
+                </button>
+                <a href="oauth.php?connect=1&store_id=<?php echo urlencode($currentStoreId); ?>&reauth=1" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold transition flex items-center gap-1 shadow-sm" title="Re-authorize Scora app with Inventory & Orders permissions">
+                    <span>🔑 Scora Permissions</span>
+                </a>
+            </div>
         </div>
 
         <script>
@@ -385,8 +390,9 @@ function openTerminalFullscreen() {
         <div id="modal-receipt-preview" class="flex-1 overflow-y-auto font-mono text-xs bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4"></div>
 
         <div class="flex gap-2">
-            <button type="button" onclick="window.printCurrentReceipt()" class="flex-1 py-3 px-4 rounded-xl bg-slate-900 text-white font-bold text-xs uppercase tracking-wider hover:bg-slate-800 transition">
-                Print Receipt
+            <button type="button" onclick="window.printCurrentReceipt()" class="flex-1 py-3 px-4 rounded-xl bg-slate-900 text-white font-bold text-xs uppercase tracking-wider hover:bg-slate-800 transition flex items-center justify-center gap-1.5 shadow-sm">
+                <span>🖨️</span>
+                <span>Print / Save PDF</span>
             </button>
             <button type="button" onclick="window.closeReceiptModal()" class="py-3 px-4 rounded-xl bg-slate-100 text-slate-800 font-bold text-xs uppercase tracking-wider hover:bg-slate-200 transition">
                 Close

@@ -90,11 +90,23 @@ try {
 
         $stockDeductStmt->execute([$qty, $productId]);
 
-        if (!empty($cloudId) || !empty($cloudVarId)) {
+        $invItemId = $item['scora_inventory_item_id'] ?? null;
+        $newStock = 0;
+        try {
+            $pRow = $pdo->query("SELECT scora_inventory_item_id, stock_qty FROM products WHERE id = " . (int)$productId)->fetch();
+            if ($pRow) {
+                if (empty($invItemId)) $invItemId = $pRow['scora_inventory_item_id'];
+                $newStock = (int)$pRow['stock_qty'];
+            }
+        } catch (Exception $e) {}
+
+        if (!empty($cloudId) || !empty($cloudVarId) || !empty($invItemId)) {
             $cloudItemsToSync[] = [
-                'product_id' => $cloudId,
-                'variant_id' => $cloudVarId,
-                'delta'      => -$qty
+                'product_id'        => $cloudId,
+                'variant_id'        => $cloudVarId,
+                'inventory_item_id' => $invItemId,
+                'new_stock'         => $newStock,
+                'delta'             => -$qty
             ];
         }
     }
@@ -128,7 +140,7 @@ try {
         $syncSuccess = true;
         $syncErrors = [];
         foreach ($cloudItemsToSync as $sItem) {
-            $res = $syncClient->adjustInventory($sItem['product_id'], $sItem['variant_id'], $sItem['delta']);
+            $res = $syncClient->adjustInventory($sItem['product_id'], $sItem['variant_id'], $sItem['delta'], $sItem['inventory_item_id'], $sItem['new_stock']);
             if (empty($res['success'])) {
                 $syncSuccess = false;
                 $syncErrors[] = $res['error'] ?? 'Stock deduction failed';

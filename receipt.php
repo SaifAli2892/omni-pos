@@ -36,11 +36,17 @@ try {
     $iStmt->execute([$saleId]);
     $items = $iStmt->fetchAll();
 
-    $currency    = getSetting('currency_symbol', 'Rs.');
-    $storeName   = getSetting('store_name', 'Omni Retail Mart');
+    $storeId     = !empty($sale['store_id']) ? $sale['store_id'] : currentStoreId();
+    $currency    = getStoreCurrencySymbol($storeId);
+    $storeName   = getStoreName($storeId) ?: getSetting('store_name', 'Omni Retail Mart');
     $storePhone  = getSetting('store_phone', '0300-1234567');
     $storeAddress= getSetting('store_address', 'Lahore, Pakistan');
     $footerText  = getSetting('receipt_footer', 'Thank you for shopping with us!');
+
+    $isDec = ($currency !== 'Rs.');
+    $fmt = function($num) use ($isDec) {
+        return $isDec ? number_format((float)$num, 2) : number_format((float)$num);
+    };
 
     ob_start();
     ?>
@@ -74,10 +80,10 @@ try {
                 <tr>
                     <td style="padding: 2px 0;">
                         <?php echo htmlspecialchars($item['product_title']); ?><br>
-                        <small><?php echo $item['quantity']; ?> × <?php echo $currency . ' ' . number_format((float)$item['unit_price']); ?></small>
+                        <small><?php echo $item['quantity']; ?> × <?php echo $currency . ' ' . $fmt($item['unit_price']); ?></small>
                     </td>
                     <td style="text-align: right; vertical-align: bottom;">
-                        <?php echo $currency . ' ' . number_format((float)$item['subtotal']); ?>
+                        <?php echo $currency . ' ' . $fmt($item['subtotal']); ?>
                     </td>
                 </tr>
             <?php endforeach; ?>
@@ -87,31 +93,31 @@ try {
     <div style="border-top: 1px dashed #000; padding-top: 4px; font-size: 11px;">
         <div style="display: flex; justify-content: space-between;">
             <span>Subtotal:</span>
-            <span><?php echo $currency . ' ' . number_format((float)$sale['subtotal']); ?></span>
+            <span><?php echo $currency . ' ' . $fmt($sale['subtotal']); ?></span>
         </div>
         <?php if ((float)$sale['discount'] > 0): ?>
             <div style="display: flex; justify-content: space-between;">
                 <span>Discount:</span>
-                <span>-<?php echo $currency . ' ' . number_format((float)$sale['discount']); ?></span>
+                <span>-<?php echo $currency . ' ' . $fmt($sale['discount']); ?></span>
             </div>
         <?php endif; ?>
         <?php if ((float)$sale['tax_amount'] > 0): ?>
             <div style="display: flex; justify-content: space-between;">
                 <span>Tax / GST:</span>
-                <span>+<?php echo $currency . ' ' . number_format((float)$sale['tax_amount']); ?></span>
+                <span>+<?php echo $currency . ' ' . $fmt($sale['tax_amount']); ?></span>
             </div>
         <?php endif; ?>
         <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; margin: 4px 0;">
             <span>TOTAL:</span>
-            <span><?php echo $currency . ' ' . number_format((float)$sale['total_amount']); ?></span>
+            <span><?php echo $currency . ' ' . $fmt($sale['total_amount']); ?></span>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 10px;">
             <span>Paid:</span>
-            <span><?php echo $currency . ' ' . number_format((float)$sale['paid_amount']); ?></span>
+            <span><?php echo $currency . ' ' . $fmt($sale['paid_amount']); ?></span>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 10px;">
             <span>Change Due:</span>
-            <span><?php echo $currency . ' ' . number_format((float)$sale['change_amount']); ?></span>
+            <span><?php echo $currency . ' ' . $fmt($sale['change_amount']); ?></span>
         </div>
     </div>
 
@@ -132,14 +138,70 @@ try {
     <!DOCTYPE html>
     <html>
     <head>
+        <meta charset="utf-8">
         <title>Receipt #<?php echo htmlspecialchars($sale['invoice_no']); ?></title>
         <style>
-            body { font-family: monospace; font-size: 12px; max-width: 80mm; margin: 0 auto; padding: 10px; }
-            @media print { body { padding: 0; } }
+            @page {
+                size: 80mm auto;
+                margin: 0;
+            }
+            body {
+                font-family: 'JetBrains Mono', 'Courier New', Courier, monospace;
+                font-size: 12px;
+                line-height: 1.35;
+                color: #000;
+                background: #fff;
+                width: 76mm;
+                margin: 0 auto;
+                padding: 6mm 4mm;
+                box-sizing: border-box;
+            }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { font-size: 11px; }
+            .no-print {
+                margin-bottom: 14px;
+                display: flex;
+                gap: 8px;
+            }
+            .no-print button {
+                flex: 1;
+                padding: 10px 14px;
+                font-size: 12px;
+                font-weight: bold;
+                border-radius: 8px;
+                border: 1px solid #cbd5e1;
+                cursor: pointer;
+                background: #f8fafc;
+                font-family: sans-serif;
+            }
+            .no-print .btn-print {
+                background: #0f172a;
+                color: #ffffff;
+                border-color: #0f172a;
+            }
+            .no-print .btn-print:hover {
+                background: #1e293b;
+            }
+            @media print {
+                .no-print { display: none !important; }
+                body { padding: 4mm 2mm !important; margin: 0 !important; width: 80mm !important; }
+            }
         </style>
     </head>
-    <body onload="window.print()">
+    <body>
+        <div class="no-print">
+            <button type="button" class="btn-print" onclick="window.print()">🖨️ Print / Save PDF</button>
+            <button type="button" onclick="window.close()">✕ Close Window</button>
+        </div>
         <?php echo $html; ?>
+        <script>
+            window.addEventListener('load', function() {
+                setTimeout(function() {
+                    window.focus();
+                    window.print();
+                }, 300);
+            });
+        </script>
     </body>
     </html>
     <?php

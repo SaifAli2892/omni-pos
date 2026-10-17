@@ -254,16 +254,20 @@ class CloudSyncClient {
 
         // 2. Live Inventory Mapping from Scora inventoryItems API
         $stockByProduct = [];
+        $invItemByProduct = [];
         try {
             $invRes = $this->query('query { inventoryItems(first: 100) { nodes { id sku productId availableQuantity } } }');
             if (!empty($invRes['data']['inventoryItems']['nodes'])) {
                 foreach ($invRes['data']['inventoryItems']['nodes'] as $item) {
                     $qty = (int)($item['availableQuantity'] ?? 0);
+                    $invId = $item['id'] ?? null;
                     if (!empty($item['productId'])) {
                         $stockByProduct[$item['productId']] = $qty;
+                        if ($invId) $invItemByProduct[$item['productId']] = $invId;
                     }
                     if (!empty($item['sku'])) {
                         $stockByProduct[$item['sku']] = $qty;
+                        if ($invId) $invItemByProduct[$item['sku']] = $invId;
                     }
                 }
             }
@@ -287,6 +291,7 @@ class CloudSyncClient {
 
                     // Exact dynamic stock from live Scora API inventoryItems
                     $stockQty = $stockByProduct[$cloudId] ?? $stockByProduct[$sku] ?? (int)($prod['stock'] ?? $prod['inventoryQuantity'] ?? 0);
+                    $invItemId = $invItemByProduct[$cloudId] ?? $invItemByProduct[$sku] ?? null;
 
                     $variantId = null;
                     if (!empty($prod['variants']['nodes'][0]['id'])) {
@@ -298,11 +303,11 @@ class CloudSyncClient {
                     $existing = $check->fetch();
 
                     if ($existing) {
-                        $upd = $this->pdo->prepare("UPDATE products SET title = ?, sku = ?, cost_price = ?, selling_price = ?, stock_qty = ?, image_url = COALESCE(?, image_url), scora_product_id = ?, scora_variant_id = COALESCE(?, scora_variant_id), is_active = 1 WHERE id = ?");
-                        $upd->execute([$title, $sku, $costPrice, $price, $stockQty, $imageUrl, $cloudId, $variantId, $existing['id']]);
+                        $upd = $this->pdo->prepare("UPDATE products SET title = ?, sku = ?, cost_price = ?, selling_price = ?, stock_qty = ?, image_url = COALESCE(?, image_url), scora_product_id = ?, scora_variant_id = COALESCE(?, scora_variant_id), scora_inventory_item_id = COALESCE(?, scora_inventory_item_id), is_active = 1 WHERE id = ?");
+                        $upd->execute([$title, $sku, $costPrice, $price, $stockQty, $imageUrl, $cloudId, $variantId, $invItemId, $existing['id']]);
                     } else {
-                        $ins = $this->pdo->prepare("INSERT INTO products (store_id, title, sku, cost_price, selling_price, stock_qty, alert_qty, image_url, scora_product_id, scora_variant_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 2, ?, ?, ?, 1)");
-                        $ins->execute([$storeId, $title, $sku, $costPrice, $price, $stockQty, $imageUrl, $cloudId, $variantId]);
+                        $ins = $this->pdo->prepare("INSERT INTO products (store_id, title, sku, cost_price, selling_price, stock_qty, alert_qty, image_url, scora_product_id, scora_variant_id, scora_inventory_item_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 2, ?, ?, ?, ?, 1)");
+                        $ins->execute([$storeId, $title, $sku, $costPrice, $price, $stockQty, $imageUrl, $cloudId, $variantId, $invItemId]);
                     }
                     $imported++;
                 }
@@ -448,15 +453,108 @@ class CloudSyncClient {
     /**
      * Real-time stock adjustment on counter sale directly on Scora
      */
-    public function adjustInventory($cloudProductId, $cloudVariantId, $delta = -1) {
+    public function adjustInventory($cloudProductId, $cloudVariantId = null, $delta = -1, $invItemId = null, $newStock = null) {
         if (empty($this->accessToken)) {
             $this->logEvent('stock_deduct', "Local stock deduction {$delta} for item {$cloudProductId}", 'info');
             return ['success' => true];
         }
 
-        $mutations = [
-            // Mutation 1: Standard Shopify/Scora inventoryAdjustQuantity
-            [
+        // Auto-lookup inventoryItemId if not directly supplied
+        if (empty($invItemId) && !empty($this->pdo)) {
+            try {
+                $pStmt = $this->pdo->prepare("SELECT scora_inventory_item_id, stock_qty FROM products WHERE (scora_product_id = ? OR id = ?) LIMIT 1");
+                $pStmt->execute([$cloudProductId, $cloudProductId]);
+                $pRow = $pStmt->fetch();
+                if ($pRow) {
+                    $invItemId = $pRow['scora_inventory_item_id'] ?? null;
+                    if ($newStock === null) {
+                        $newStock = (int)$pRow['stock_qty'];
+                    }
+                }
+            } catch (Exception $e) {}
+        }
+
+        $mutations = [];
+
+        // 1. If inventoryItemId is known, try inventoryAdjustQuantities
+        if (!empty($invItemId)) {
+            $mutations[] = [
+                'query' => 'mutation inventoryAdjustQuantities($input: InventoryAdjustQuantitiesInput!) {
+                    inventoryAdjustQuantities(input: $input) {
+                        userErrors { field message }
+                    }
+                }',
+                'vars' => [
+                    'input' => [
+                        'reason' => 'correction',
+                        'name' => 'available',
+                        'changes' => [
+                            [
+                                'delta' => (int)$delta,
+                                'inventoryItemId' => (string)$invItemId
+                            ]
+                        ]
+                    ]
+                ]
+            ];
+
+            // 2. Direct inventoryAdjustQuantity with inventoryItemId
+            $mutations[] = [
+                'query' => 'mutation inventoryAdjustQuantity($input: InventoryAdjustQuantityInput!) {
+                    inventoryAdjustQuantity(input: $input) {
+                        userErrors { field message }
+                    }
+                }',
+                'vars' => [
+                    'input' => [
+                        'inventoryItemId' => (string)$invItemId,
+                        'availableDelta'  => (int)$delta
+                    ]
+                ]
+            ];
+
+            // 3. inventorySetOnHandQuantities if newStock is provided
+            if ($newStock !== null) {
+                $mutations[] = [
+                    'query' => 'mutation inventorySetOnHandQuantities($input: InventorySetOnHandQuantitiesInput!) {
+                        inventorySetOnHandQuantities(input: $input) {
+                            userErrors { field message }
+                        }
+                    }',
+                    'vars' => [
+                        'input' => [
+                            'reason' => 'correction',
+                            'setQuantities' => [
+                                [
+                                    'inventoryItemId' => (string)$invItemId,
+                                    'quantity'        => max(0, (int)$newStock)
+                                ]
+                            ]
+                        ]
+                    ]
+                ];
+
+                // 4. inventoryItemUpdate
+                $mutations[] = [
+                    'query' => 'mutation inventoryItemUpdate($id: ID!, $input: InventoryItemInput!) {
+                        inventoryItemUpdate(id: $id, input: $input) {
+                            userErrors { field message }
+                        }
+                    }',
+                    'vars' => [
+                        'id' => (string)$invItemId,
+                        'input' => [
+                            'availableQuantity' => max(0, (int)$newStock)
+                        ]
+                    ]
+                ];
+            }
+        }
+
+        // 5. Fallback: variantId / productId based inventoryAdjustQuantity
+        $targetVarId = $cloudVariantId ?: $cloudProductId;
+        if (!empty($targetVarId)) {
+            $mutations[] = [
                 'query' => 'mutation AdjustInventoryQuantity($variantId: ID!, $delta: Int!) {
                     inventoryAdjustQuantity(input: { variantId: $variantId, availableDelta: $delta }) {
                         inventoryLevel { id available }
@@ -464,35 +562,35 @@ class CloudSyncClient {
                     }
                 }',
                 'vars' => [
-                    'variantId' => $cloudVariantId ?: $cloudProductId,
+                    'variantId' => $targetVarId,
                     'delta'     => (int)$delta
                 ]
-            ],
-            // Mutation 2: productAdjustStock
-            [
-                'query' => 'mutation ProductAdjustStock($productId: ID!, $delta: Int!) {
-                    productAdjustStock(id: $productId, delta: $delta) {
-                        product { id title }
-                        userErrors { field message }
-                    }
-                }',
-                'vars' => [
-                    'productId' => $cloudProductId,
-                    'delta'     => (int)$delta
-                ]
-            ]
-        ];
+            ];
+        }
 
         $lastRes = null;
         foreach ($mutations as $m) {
             $lastRes = $this->query($m['query'], $m['vars']);
             if ($lastRes['success']) {
-                $this->logEvent('stock_deduct', "Successfully adjusted {$delta} online stock on Scora for item {$cloudProductId}", 'success');
+                $this->logEvent('stock_deduct', "Successfully deducted {$delta} online stock on Scora for item {$cloudProductId}", 'success');
                 return $lastRes;
             }
         }
 
-        return $lastRes ?? ['success' => false, 'error' => 'Could not adjust stock on Scora'];
+        // Error classification: Check if permission/scope is missing
+        $errMsg = $lastRes['error'] ?? 'Could not adjust stock on Scora';
+        $isForbidden = (stripos($errMsg, 'not allowed') !== false) || (stripos($errMsg, 'forbidden') !== false);
+
+        if ($isForbidden) {
+            $this->logEvent('stock_sync_scope_notice', "Scora OAuth App needs 'inventory:write' permission in Scora Developer Portal & Re-authorization.", 'warning');
+            return [
+                'success'    => false,
+                'need_scope' => true,
+                'error'      => "Scora store permissions: App ID 11 needs 'inventory:write' permission enabled in Scora Developer Portal. Please re-authorize by clicking Live Scora Sync."
+            ];
+        }
+
+        return $lastRes ?? ['success' => false, 'error' => $errMsg];
     }
 
     public function query($graphQLQuery, $variables = [], $retried = false) {

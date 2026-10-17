@@ -256,6 +256,7 @@ window.processCheckout = async function() {
 
         if (result.success) {
             playScanBeep('success');
+            window.lastSaleId = result.sale_id || null;
             window.showToast(`Invoice #${result.invoice_no} completed successfully!`, 'success');
 
             // Format thermal receipt
@@ -381,6 +382,14 @@ window.closeReceiptModal = function() {
 };
 
 window.printCurrentReceipt = function() {
+    if (window.lastSaleId) {
+        const win = window.open(`receipt.php?id=${window.lastSaleId}`, '_blank');
+        if (win) {
+            win.focus();
+            return;
+        }
+    }
+
     const modalPreview = document.getElementById('modal-receipt-preview');
     const thermalReceipt = document.getElementById('thermal-receipt');
     const receiptHtml = (modalPreview && modalPreview.innerHTML.trim().length > 10) 

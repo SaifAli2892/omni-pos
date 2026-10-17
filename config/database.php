@@ -354,6 +354,10 @@ try {
             $pdo->exec("ALTER TABLE products ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
             $pdo->exec("ALTER TABLE products ADD INDEX idx_store (store_id)");
         }
+        $invCol = $pdo->query("SHOW COLUMNS FROM products LIKE 'scora_inventory_item_id'")->fetch();
+        if (!$invCol) {
+            $pdo->exec("ALTER TABLE products ADD COLUMN scora_inventory_item_id VARCHAR(100) NULL AFTER scora_variant_id");
+        }
         $cCols = $pdo->query("SHOW COLUMNS FROM categories LIKE 'store_id'")->fetch();
         if (!$cCols) {
             $pdo->exec("ALTER TABLE categories ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
