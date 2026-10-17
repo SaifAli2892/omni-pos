@@ -63,7 +63,9 @@ try {
         <div><b>Customer:</b> <?php echo htmlspecialchars($sale['customer_name'] ?: 'Walk-in Customer'); ?></div>
         <div><b>Cashier:</b> <?php echo htmlspecialchars($sale['cashier_name'] ?: 'Admin'); ?></div>
         <div><b>Payment:</b> <?php echo strtoupper($sale['payment_method']); ?></div>
-        <?php if ($sale['scora_sync_status'] === 'synced'): ?>
+        <?php if (!empty($sale['scora_order_id'])): ?>
+            <div><b>Scora Order:</b> <?php echo htmlspecialchars($sale['scora_order_id']); ?> ✓</div>
+        <?php elseif ($sale['scora_sync_status'] === 'synced'): ?>
             <div><b>Cloud Sync:</b> Verified ✓</div>
         <?php endif; ?>
     </div>

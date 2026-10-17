@@ -373,6 +373,10 @@ try {
             $pdo->exec("ALTER TABLE sales ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
             $pdo->exec("ALTER TABLE sales ADD INDEX idx_store (store_id)");
         }
+        $scOrderCol = $pdo->query("SHOW COLUMNS FROM sales LIKE 'scora_order_id'")->fetch();
+        if (!$scOrderCol) {
+            $pdo->exec("ALTER TABLE sales ADD COLUMN scora_order_id VARCHAR(100) NULL AFTER scora_sync_status");
+        }
         $lCols = $pdo->query("SHOW COLUMNS FROM sync_logs LIKE 'store_id'")->fetch();
         if (!$lCols) {
             $pdo->exec("ALTER TABLE sync_logs ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");

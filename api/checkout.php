@@ -135,49 +135,73 @@ try {
 
     $pdo->commit();
 
-    // 4. Background Real-time Cloud API Synchronization
-    $cloudSyncResult = 'local_only';
-    $syncClient = new CloudSyncClient($pdo, $storeId);
-    if (!empty($cloudItemsToSync) && !empty($syncClient->getAccessToken())) {
-        $syncSuccess = true;
-        $syncErrors = [];
-        foreach ($cloudItemsToSync as $sItem) {
-            $res = $syncClient->adjustInventory($sItem['product_id'], $sItem['variant_id'], $sItem['delta'], $sItem['inventory_item_id'], $sItem['new_stock']);
-            if (empty($res['success'])) {
-                $syncSuccess = false;
-                $syncErrors[] = $res['error'] ?? 'Stock deduction failed';
-            }
-        }
-        $cloudSyncResult = $syncSuccess ? 'synced' : 'failed';
-        $updateSync = $pdo->prepare("UPDATE sales SET scora_sync_status = ? WHERE id = ?");
-        $updateSync->execute([$cloudSyncResult, $saleId]);
-        if (!$syncSuccess) {
-            $syncClient->logEvent('stock_sync_error', "Stock sync error on invoice {$invoiceNo}: " . implode('; ', $syncErrors), 'error');
-        } else {
-            $syncClient->logEvent('stock_sync_success', "Successfully deducted online stock for invoice {$invoiceNo}", 'success');
-        }
-    }
-
-    // 5. Fetch Customer Details for Receipt
-    $custName = 'Walk-in Customer';
+    // 4. Fetch Customer Details for Receipt & Cloud Order
+    $custName  = 'Walk-in Customer';
+    $custPhone = '03001234567';
     if ($customerId > 1) {
         $cStmt = $pdo->prepare("SELECT name, phone FROM customers WHERE id = ?");
         $cStmt->execute([$customerId]);
         $cRow = $cStmt->fetch();
-        if ($cRow) $custName = $cRow['name'];
+        if ($cRow) {
+            $custName = $cRow['name'];
+            if (!empty($cRow['phone'])) $custPhone = $cRow['phone'];
+        }
+    }
+
+    // 5. Real-time Scora Cloud Sync (Injects Order into Scora Dashboard & Deducts Live Stock)
+    $cloudSyncResult = 'local_only';
+    $syncClient = new CloudSyncClient($pdo, $storeId);
+    $scoraOrderNo = null;
+
+    if (!empty($cloudItemsToSync) && !empty($syncClient->getAccessToken())) {
+        $orderPayload = [
+            'invoice_no'     => $invoiceNo,
+            'customer_name'  => $custName,
+            'customer_phone' => $custPhone,
+            'payment_method' => $paymentMethod,
+            'items'          => $items
+        ];
+
+        $orderRes = $syncClient->createCloudOrder($orderPayload);
+
+        if (!empty($orderRes['success'])) {
+            $cloudSyncResult = 'synced';
+            $scoraOrderNo = $orderRes['order_number'] ?? ($orderRes['cloud_order']['orderNumber'] ?? null);
+            try {
+                $updateSync = $pdo->prepare("UPDATE sales SET scora_sync_status = 'synced', scora_order_id = ? WHERE id = ?");
+                $updateSync->execute([$scoraOrderNo, $saleId]);
+            } catch (Exception $e) {}
+        } else {
+            // Fallback: If order creation failed, still ensure stock is decremented via adjustInventory
+            $syncSuccess = true;
+            $syncErrors = [];
+            foreach ($cloudItemsToSync as $sItem) {
+                $res = $syncClient->adjustInventory($sItem['product_id'], $sItem['variant_id'], $sItem['delta'], $sItem['inventory_item_id'], $sItem['new_stock']);
+                if (empty($res['success'])) {
+                    $syncSuccess = false;
+                    $syncErrors[] = $res['error'] ?? 'Stock deduction failed';
+                }
+            }
+            $cloudSyncResult = $syncSuccess ? 'synced' : 'failed';
+            try {
+                $updateSync = $pdo->prepare("UPDATE sales SET scora_sync_status = ? WHERE id = ?");
+                $updateSync->execute([$cloudSyncResult, $saleId]);
+            } catch (Exception $e) {}
+        }
     }
 
     echo json_encode([
-        'success'           => true,
-        'sale_id'           => $saleId,
-        'invoice_no'        => $invoiceNo,
-        'total_amount'      => $totalAmount,
-        'paid_amount'       => $paidAmount,
-        'change_amount'     => $changeAmount,
-        'payment_method'    => $paymentMethod,
-        'customer_name'     => $custName,
-        'sync_status'       => $cloudSyncResult,
-        'created_at'        => date('d-M-Y h:i A')
+        'success'            => true,
+        'sale_id'            => $saleId,
+        'invoice_no'         => $invoiceNo,
+        'scora_order_number' => $scoraOrderNo,
+        'total_amount'       => $totalAmount,
+        'paid_amount'        => $paidAmount,
+        'change_amount'      => $changeAmount,
+        'payment_method'     => $paymentMethod,
+        'customer_name'      => $custName,
+        'sync_status'        => $cloudSyncResult,
+        'created_at'         => date('d-M-Y h:i A')
     ]);
 
 } catch (Exception $e) {

@@ -470,6 +470,113 @@ class CloudSyncClient {
     }
 
     /**
+     * Create POS Counter Sale Order directly in Scora Cloud
+     * Automatically reflects on Scora's Orders list, Analytics, and Main Dashboard
+     */
+    public function createCloudOrder($orderData) {
+        if (empty($this->accessToken)) {
+            return ['success' => false, 'error' => 'No access token'];
+        }
+
+        $mutation = 'mutation CreatePosOrder($input: OrderCreateInput!) {
+            orderCreate(input: $input) {
+                order {
+                    id
+                    orderNumber
+                    status
+                    statusCode
+                    totalAmount
+                    customerName
+                    items {
+                        id
+                        productId
+                        name
+                        quantity
+                        price
+                    }
+                }
+                userErrors {
+                    field
+                    message
+                }
+                clientMutationId
+            }
+        }';
+
+        $customerName = !empty($orderData['customer_name']) ? trim($orderData['customer_name']) : 'Walk-in Customer';
+        $customerPhone = !empty($orderData['customer_phone']) ? trim($orderData['customer_phone']) : '03001234567';
+        $invoiceNo = !empty($orderData['invoice_no']) ? $orderData['invoice_no'] : ('POS-' . time());
+        $paymentMethod = !empty($orderData['payment_method']) ? ucfirst($orderData['payment_method']) : 'Cash';
+
+        $lineItems = [];
+        foreach ($orderData['items'] as $item) {
+            $rawPid = $item['scora_product_id'] ?? $item['product_id'] ?? null;
+            $formattedPid = $this->formatScoraProductId($rawPid);
+            
+            // If still missing, attempt lookup from local DB
+            if (empty($formattedPid) && !empty($item['id']) && !empty($this->pdo)) {
+                try {
+                    $pStmt = $this->pdo->prepare("SELECT scora_product_id FROM products WHERE id = ? LIMIT 1");
+                    $pStmt->execute([(int)$item['id']]);
+                    $pRow = $pStmt->fetch();
+                    if ($pRow && !empty($pRow['scora_product_id'])) {
+                        $formattedPid = $this->formatScoraProductId($pRow['scora_product_id']);
+                    }
+                } catch (Exception $e) {}
+            }
+
+            if (!empty($formattedPid)) {
+                $lineItems[] = [
+                    'productId' => (string)$formattedPid,
+                    'quantity'  => max(1, (int)($item['qty'] ?? 1)),
+                    'price'     => (float)($item['price'] ?? 0),
+                    'name'      => (string)($item['title'] ?? 'Product')
+                ];
+            }
+        }
+
+        if (empty($lineItems)) {
+            return ['success' => false, 'error' => 'No valid cloud products found in order'];
+        }
+
+        $vars = [
+            'input' => [
+                'customerName'     => $customerName,
+                'customerPhone'    => $customerPhone,
+                'shippingAddress'  => 'In-Store Counter (' . $paymentMethod . ')',
+                'status'           => 'paid',
+                'source'           => 'pos',
+                'lineItems'        => $lineItems,
+                'clientMutationId' => 'pos-' . $invoiceNo . '-' . time()
+            ]
+        ];
+
+        $res = $this->query($mutation, $vars);
+
+        if (!empty($res['success']) && empty($res['data']['orderCreate']['userErrors']) && !empty($res['data']['orderCreate']['order']['id'])) {
+            $cloudOrder = $res['data']['orderCreate']['order'];
+            $this->logEvent('cloud_order_create', "Successfully created Scora Cloud Order #{$cloudOrder['orderNumber']} for invoice {$invoiceNo} (Amount: {$cloudOrder['totalAmount']})", 'success');
+            return [
+                'success'      => true,
+                'cloud_order'  => $cloudOrder,
+                'order_number' => $cloudOrder['orderNumber'],
+                'cloud_id'     => $cloudOrder['id']
+            ];
+        }
+
+        $errStr = 'Order creation failed';
+        if (!empty($res['data']['orderCreate']['userErrors'])) {
+            $errs = array_map(function($e) { return $e['message']; }, $res['data']['orderCreate']['userErrors']);
+            $errStr = implode(', ', $errs);
+        } elseif (!empty($res['error'])) {
+            $errStr = $res['error'];
+        }
+
+        $this->logEvent('cloud_order_error', "Failed to create Scora Cloud Order for invoice {$invoiceNo}: {$errStr}", 'error');
+        return ['success' => false, 'error' => $errStr, 'raw' => $res];
+    }
+
+    /**
      * Real-time stock adjustment on counter sale directly on Scora
      */
     public function adjustInventory($cloudProductId, $cloudVariantId = null, $delta = -1, $invItemId = null, $newStock = null) {
