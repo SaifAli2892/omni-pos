@@ -161,7 +161,18 @@ class CloudSyncClient {
      * Refresh OAuth Access Token using Scora refresh_token
      */
     public function refreshAccessToken() {
-        $refreshToken = getSetting('cloud_refresh_token', '');
+        $refreshToken = null;
+        if (!empty($this->storeId) && $this->pdo) {
+            try {
+                $stmt = $this->pdo->prepare("SELECT refresh_token FROM store_tokens WHERE store_id = ? LIMIT 1");
+                $stmt->execute([$this->storeId]);
+                $refreshToken = $stmt->fetchColumn();
+            } catch (Exception $e) {}
+        }
+        if (empty($refreshToken)) {
+            $refreshToken = getSetting('cloud_refresh_token', '');
+        }
+
         if (empty($refreshToken) || empty($this->clientId) || empty($this->clientSecret)) {
             return false;
         }
@@ -187,10 +198,11 @@ class CloudSyncClient {
         $data = json_decode($resp, true);
         if ($code === 200 && !empty($data['access_token'])) {
             $this->accessToken = $data['access_token'];
-            setSetting('cloud_access_token', $this->accessToken);
-            if (!empty($data['refresh_token'])) {
-                setSetting('cloud_refresh_token', $data['refresh_token']);
+            $newRefresh = !empty($data['refresh_token']) ? $data['refresh_token'] : $refreshToken;
+            if (!empty($this->storeId)) {
+                setStoreAccessToken($this->storeId, $this->accessToken, $newRefresh);
             }
+            setSetting('cloud_refresh_token', $newRefresh);
             return true;
         }
         return false;
@@ -367,9 +379,9 @@ class CloudSyncClient {
 
         $decoded = json_decode($response, true);
 
-        // If token expired (HTTP 401, UNAUTHENTICATED, or "Token expired" message), auto-refresh token and retry once
+        // If token expired (HTTP 401, UNAUTHENTICATED, or "expired" message), auto-refresh token and retry once
         $isExpired = ($httpCode === 401)
-            || (isset($decoded['errors'][0]['extensions']['code']) && in_array($decoded['errors'][0]['extensions']['code'], ['UNAUTHENTICATED', 'FORBIDDEN']))
+            || (isset($decoded['errors'][0]['extensions']['code']) && $decoded['errors'][0]['extensions']['code'] === 'UNAUTHENTICATED')
             || (isset($decoded['errors'][0]['message']) && stripos($decoded['errors'][0]['message'], 'expired') !== false)
             || (isset($decoded['errors'][0]['message']) && stripos($decoded['errors'][0]['message'], 'refresh token') !== false);
 

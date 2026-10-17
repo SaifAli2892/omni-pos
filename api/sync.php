@@ -78,22 +78,8 @@ if ($action === 'wipe_store') {
     exit;
 }
 
-if ($action === 'introspect') {
-    $q = 'query {
-        __type(name: "Product") {
-            fields {
-                name
-                type { name kind ofType { name kind } }
-            }
-        }
-        mutationType: __schema {
-            mutationType {
-                fields {
-                    name
-                }
-            }
-        }
-    }';
+if ($action === 'test_query') {
+    $q = $_POST['q'] ?? $_GET['q'] ?? 'query { products(first: 2) { nodes { id title } } }';
     $res = $client->query($q);
     echo json_encode($res);
     exit;
