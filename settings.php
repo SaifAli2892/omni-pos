@@ -36,14 +36,17 @@ $receiptFoot = getSetting('receipt_footer', 'Thank you for shopping with us!');
 $currency    = getSetting('currency_symbol', 'Rs.');
 $taxRate     = getSetting('tax_rate', '0');
 
-$cloudDomain = getSetting('cloud_store_domain', '');
+$currentStoreId = currentStoreId();
+$cloudDomain = getSetting('cloud_store_domain', 'scora.com.pk');
+$cloudToken  = getStoreAccessToken($currentStoreId);
 $lastSync    = getSetting('cloud_last_sync', '');
-$isConnected = !empty($cloudDomain);
+$isConnected = !empty($cloudToken);
 
-// Fetch recent sync logs
+// Fetch recent sync logs strictly for this store
 $logs = [];
 try {
-    $stmt = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 15");
+    $stmt = $pdo->prepare("SELECT * FROM sync_logs WHERE store_id = ? ORDER BY id DESC LIMIT 15");
+    $stmt->execute([$currentStoreId]);
     $logs = $stmt->fetchAll();
 } catch (Exception $e) {}
 ?>
@@ -251,93 +254,140 @@ try {
 
 <!-- Modal: Switch / Connect Store -->
 <div id="connect-store-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden">
-    <div class="bg-white border border-slate-200 max-w-md w-full rounded-2xl p-6 shadow-2xl">
+    <div class="bg-white border border-slate-200 max-w-lg w-full rounded-2xl p-6 shadow-2xl">
         <div class="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
-            <h3 class="font-bold text-sm text-slate-900">1-Click Store Auto-Sync</h3>
+            <div>
+                <h3 class="font-bold text-sm text-slate-900">Connect Store with Scora</h3>
+                <p class="text-[11px] text-slate-500">Active Store Context: <strong class="text-slate-800"><?php echo htmlspecialchars($storeName); ?> (Store ID: <?php echo htmlspecialchars($currentStoreId); ?>)</strong></p>
+            </div>
             <button type="button" onclick="document.getElementById('connect-store-modal').classList.add('hidden')" class="text-slate-400 hover:text-slate-900 font-bold text-lg">&times;</button>
         </div>
 
-        <div class="space-y-4">
-            <p class="text-xs text-slate-500 leading-relaxed">
-                Enter your brand/store name below. The system will automatically link your store, update branding, and pull your store's inventory without manual tokens.
-            </p>
-
-            <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Store / Brand Name</label>
-                <input type="text" id="auto-store-name" placeholder="e.g. Sana Safinaz or Khaadi Mart" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-emerald-600 font-medium">
+        <div class="space-y-5">
+            <!-- Method A: 1-Click Official OAuth -->
+            <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-emerald-950 uppercase tracking-wide">Method 1: 1-Click OAuth (Recommended)</span>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-200 text-emerald-900">Auto</span>
+                </div>
+                <p class="text-xs text-emerald-800 leading-relaxed">
+                    Automatically connects to Scora Admin, fetches live catalog for this store, and enables real-time inventory synchronization.
+                </p>
+                <div class="pt-1">
+                    <a href="oauth.php?connect=1&store_id=<?php echo urlencode($currentStoreId); ?>" class="w-full py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition shadow-sm">
+                        <span>⚡ 1-Click Authorize Store</span>
+                    </a>
+                </div>
             </div>
 
-            <div class="pt-2 flex gap-2">
-                <button type="button" onclick="executeAutoConnect()" id="btn-confirm-connect" class="flex-1 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition">
-                    Auto-Sync Store Now
-                </button>
-                <button type="button" onclick="document.getElementById('connect-store-modal').classList.add('hidden')" class="px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-semibold text-xs hover:bg-slate-200 transition">
-                    Cancel
-                </button>
+            <div class="relative flex items-center justify-center">
+                <div class="border-t border-slate-200 w-full"></div>
+                <span class="bg-white px-3 text-[11px] font-bold uppercase text-slate-400 shrink-0">OR (Developer Portal)</span>
+                <div class="border-t border-slate-200 w-full"></div>
+            </div>
+
+            <!-- Method B: Developer Portal Test Token -->
+            <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-900 uppercase tracking-wide">Method 2: Developer Access Token</span>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-800">Manual</span>
+                </div>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    Paste the 30-day Test Access Token from your Scora Developer Portal.
+                    <span class="block text-[11px] text-amber-700 mt-1 font-medium bg-amber-50 p-2 rounded border border-amber-200">
+                        ⚠️ <strong>Important:</strong> In Scora Developer Portal, verify that the <strong>"STORE CONTEXT"</strong> dropdown matches <strong><?php echo htmlspecialchars($storeName); ?></strong> before generating the token.
+                    </span>
+                </p>
+                <div>
+                    <input 
+                        type="text" 
+                        id="manual-access-token" 
+                        placeholder="Paste Scora access token here (e.g. b6IvW9ab...)" 
+                        class="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-900 text-xs font-mono focus:outline-none focus:border-emerald-600"
+                    >
+                </div>
+                <div class="flex gap-2">
+                    <button type="button" onclick="executeManualToken()" id="btn-save-token" class="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition">
+                        Verify & Link Token
+                    </button>
+                    <button type="button" onclick="document.getElementById('connect-store-modal').classList.add('hidden')" class="px-4 py-2.5 rounded-xl bg-slate-200 text-slate-700 font-semibold text-xs hover:bg-slate-300 transition">
+                        Cancel
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
 <script>
+const activeStoreId = <?php echo json_encode($currentStoreId); ?>;
+
 function openConnectModal() {
     document.getElementById('connect-store-modal').classList.remove('hidden');
 }
 
 async function triggerAutoSync() {
     const btn = document.getElementById('btn-auto-sync');
-    btn.disabled = true;
-    btn.innerText = 'Syncing...';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Syncing...';
+    }
 
     try {
-        const res = await fetch('api/sync.php?action=import_catalog');
+        const res = await fetch('api/sync.php?action=import_catalog&store_id=' + encodeURIComponent(activeStoreId));
         const data = await res.json();
         if (data.success) {
-            window.showToast(data.message || 'Store data auto-synced successfully!', 'success');
+            window.showToast(data.message || 'Store catalog synced successfully!', 'success');
             setTimeout(() => window.location.reload(), 1200);
+        } else if (data.need_auth) {
+            window.showToast('Authentication required. Redirecting to 1-click connect...', 'info');
+            setTimeout(() => {
+                window.location.href = data.auth_url || ('oauth.php?connect=1&store_id=' + encodeURIComponent(activeStoreId));
+            }, 600);
         } else {
             window.showToast(data.error || 'Sync error', 'error');
         }
     } catch (e) {
         window.showToast('Network error during auto-sync', 'error');
     } finally {
-        btn.disabled = false;
-        btn.innerText = 'Re-Sync Store Catalog';
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = 'Re-Sync Store Catalog';
+        }
     }
 }
 
-async function executeAutoConnect() {
-    const nameInput = document.getElementById('auto-store-name').value.trim();
-    if (!nameInput) {
-        window.showToast('Please enter your store name or domain', 'error');
+async function executeManualToken() {
+    const token = document.getElementById('manual-access-token').value.trim();
+    if (!token) {
+        window.showToast('Please paste a Scora access token', 'error');
         return;
     }
 
-    const btn = document.getElementById('btn-confirm-connect');
+    const btn = document.getElementById('btn-save-token');
     btn.disabled = true;
-    btn.innerText = 'Connecting...';
+    btn.innerText = 'Validating with Scora...';
 
     try {
-        const res = await fetch('api/sync.php?action=auto_connect_store', {
+        const res = await fetch('api/sync.php?action=save_token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ store_name: nameInput })
+            body: JSON.stringify({ token: token, store_id: activeStoreId })
         });
         const data = await res.json();
         if (data.success) {
             window.showToast(data.message, 'success');
-            setTimeout(() => window.location.href = 'settings.php', 1000);
+            setTimeout(() => window.location.href = 'index.php?store_id=' + encodeURIComponent(data.store_id || activeStoreId), 1200);
         } else {
-            window.showToast(data.error || 'Connection failed', 'error');
+            window.showToast(data.error || 'Failed to validate token with Scora', 'error');
         }
     } catch (e) {
-        window.showToast('Network error connecting store', 'error');
+        window.showToast('Network error communicating with Scora API', 'error');
     } finally {
         btn.disabled = false;
-        btn.innerText = 'Auto-Sync Store Now';
+        btn.innerText = 'Verify & Link Token';
     }
 }
-
 </script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

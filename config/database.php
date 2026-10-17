@@ -105,13 +105,6 @@ function getSetting($key, $default = '') {
         $row = $stmt->fetch();
         $val = $row ? $row['value'] : $default;
 
-        // Upgrade expired token to new 30-day test token provided in developer portal
-        if ($key === 'cloud_access_token' && (empty($val) || strpos($val, 'Qr4q') !== false)) {
-            $newToken = 'b6IvW9ab8Ckqk9gMkEox_BbV3netq2smn4avva6v0_VE9UnaFSF6p5Lb6LY5oKB7';
-            setSetting('cloud_access_token', $newToken);
-            return $newToken;
-        }
-
         return $val;
     } catch (Exception $e) {
         return $default;
@@ -130,16 +123,76 @@ function setSetting($key, $value) {
     }
 }
 
+// Multi-tenant token isolation: Get token strictly for specific store
+function getStoreAccessToken($storeId = null) {
+    global $pdo;
+    $storeId = (string)($storeId ?: currentStoreId());
+    if (!$pdo || empty($storeId)) return null;
+
+    try {
+        $stmt = $pdo->prepare("SELECT access_token FROM store_tokens WHERE store_id = ? LIMIT 1");
+        $stmt->execute([$storeId]);
+        $row = $stmt->fetch();
+        if ($row && !empty($row['access_token'])) {
+            return $row['access_token'];
+        }
+    } catch (Exception $e) {}
+
+    // Fallback if settings table matches current active store
+    $globalStoreId = (string)getSetting('scora_store_id', '');
+    if ($globalStoreId === $storeId) {
+        $tok = getSetting('cloud_access_token', '');
+        if (!empty($tok)) return $tok;
+    }
+
+    return null;
+}
+
+// Save isolated token strictly for a store
+function setStoreAccessToken($storeId, $accessToken, $refreshToken = null, $storeName = null, $storeDomain = null) {
+    global $pdo;
+    $storeId = (string)($storeId ?: currentStoreId());
+    if (!$pdo || empty($storeId) || empty($accessToken)) return false;
+
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO store_tokens (store_id, store_name, store_domain, access_token, refresh_token)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                access_token = VALUES(access_token),
+                refresh_token = COALESCE(VALUES(refresh_token), refresh_token),
+                store_name = COALESCE(VALUES(store_name), store_name),
+                store_domain = COALESCE(VALUES(store_domain), store_domain),
+                updated_at = CURRENT_TIMESTAMP
+        ");
+        return $stmt->execute([$storeId, $storeName, $storeDomain, $accessToken, $refreshToken]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+function removeStoreToken($storeId) {
+    global $pdo;
+    if (!$pdo || empty($storeId)) return false;
+    try {
+        $stmt = $pdo->prepare("DELETE FROM store_tokens WHERE store_id = ?");
+        return $stmt->execute([(string)$storeId]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
 // Get the active store ID (multi-tenant context)
 function currentStoreId() {
     if (session_status() === PHP_SESSION_NONE) {
         @session_start();
     }
+    if (!empty($_GET['store_id'])) {
+        $_SESSION['scora_store_id'] = (string)$_GET['store_id'];
+        return (string)$_GET['store_id'];
+    }
     if (!empty($_SESSION['scora_store_id'])) {
         return (string)$_SESSION['scora_store_id'];
-    }
-    if (!empty($_GET['store_id'])) {
-        return (string)$_GET['store_id'];
     }
     return (string)getSetting('scora_store_id', '56');
 }
@@ -173,7 +226,10 @@ function purgeStoreData($storeId) {
         // 7. Delete sync logs
         $pdo->prepare("DELETE FROM sync_logs WHERE store_id = ?")->execute([$storeId]);
 
-        // 8. Reset store settings if it was the active store
+        // 8. Delete store credentials/tokens
+        $pdo->prepare("DELETE FROM store_tokens WHERE store_id = ?")->execute([$storeId]);
+
+        // 9. Reset store settings if it was the active store
         $activeStore = getSetting('scora_store_id', '');
         if ($activeStore === (string)$storeId) {
             setSetting('cloud_access_token', '');
@@ -193,9 +249,22 @@ function purgeStoreData($storeId) {
     }
 }
 
-// Ensure multi-tenant columns exist on all core tables
+// Ensure multi-tenant columns & tables exist on all core entities
 try {
     if ($pdo) {
+        // Multi-tenant isolated store tokens table
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS store_tokens (
+                store_id VARCHAR(50) PRIMARY KEY,
+                store_name VARCHAR(100) NULL,
+                store_domain VARCHAR(150) NULL,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
         $pCols = $pdo->query("SHOW COLUMNS FROM products LIKE 'store_id'")->fetch();
         if (!$pCols) {
             $pdo->exec("ALTER TABLE products ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
@@ -221,5 +290,8 @@ try {
             $pdo->exec("ALTER TABLE sync_logs ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
             $pdo->exec("ALTER TABLE sync_logs ADD INDEX idx_store (store_id)");
         }
+
+        // Automatic cleanup of cross-pollinated LEO shampoo items from Store 56
+        $pdo->exec("DELETE FROM products WHERE store_id = '56' AND (title LIKE 'LEO Organic%' OR title LIKE '%hair and skin care%' OR title LIKE 'Haircare package' OR title LIKE 'skin care package')");
     }
 } catch (Exception $e) {}

@@ -139,12 +139,13 @@ function openTerminalFullscreen() {
 
         <script>
         window.hasScoraToken = <?php echo !empty($cloudToken) ? 'true' : 'false'; ?>;
+        window.currentStoreId = <?php echo json_encode($currentStoreId); ?>;
 
         async function quickSyncStoreProducts(btn) {
             if (!window.hasScoraToken) {
-                if (window.showToast) window.showToast('Redirecting to Scora for 1-click authorization...', 'info');
+                if (window.showToast) window.showToast('Connecting to Scora for 1-click authorization...', 'info');
                 setTimeout(() => {
-                    window.location.href = 'oauth.php?connect=1';
+                    window.location.href = 'oauth.php?connect=1&store_id=' + encodeURIComponent(window.currentStoreId);
                 }, 400);
                 return;
             }
@@ -154,15 +155,15 @@ function openTerminalFullscreen() {
                 btn.innerText = 'Connecting to Scora API...';
             }
             try {
-                const res = await fetch('api/sync.php?action=import_catalog');
+                const res = await fetch('api/sync.php?action=import_catalog&store_id=' + encodeURIComponent(window.currentStoreId));
                 const data = await res.json();
                 if (data.success) {
                     window.showToast(data.message || 'Store products synced!', 'success');
                     setTimeout(() => window.location.reload(), 800);
                 } else if (data.need_auth || (data.error && (data.error.includes('expired') || data.error.includes('refresh token') || data.error.includes('UNAUTHENTICATED')))) {
-                    window.showToast('Scora token expired. Renewing 1-click authorization...', 'info');
+                    window.showToast('Scora authorization needed. Redirecting...', 'info');
                     setTimeout(() => {
-                        window.location.href = 'oauth.php?connect=1';
+                        window.location.href = data.auth_url || ('oauth.php?connect=1&store_id=' + encodeURIComponent(window.currentStoreId));
                     }, 600);
                 } else {
                     window.showToast(data.error || 'Failed to sync', 'error');
@@ -172,7 +173,7 @@ function openTerminalFullscreen() {
                     }
                 }
             } catch (e) {
-                window.location.href = 'oauth.php?connect=1';
+                window.location.href = 'oauth.php?connect=1&store_id=' + encodeURIComponent(window.currentStoreId);
             }
         }
         </script>

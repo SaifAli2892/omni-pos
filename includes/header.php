@@ -5,11 +5,12 @@
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/../config/database.php';
 
-$storeName   = getSetting('store_name', 'Omni Retail Mart');
-$cloudToken  = getSetting('cloud_access_token', '');
-$currency    = getSetting('currency_symbol', 'Rs.');
-$user        = currentUser();
-$currentPage = basename($_SERVER['PHP_SELF']);
+$currentStoreId = currentStoreId();
+$storeName      = getSetting('store_name', 'MM Official POS');
+$cloudToken     = getStoreAccessToken($currentStoreId);
+$currency       = getSetting('currency_symbol', 'Rs.');
+$user           = currentUser();
+$currentPage    = basename($_SERVER['PHP_SELF']);
 
 // Parse Scora POS context if opened from Scora Admin
 if (!empty($_GET['scora_context'])) {
@@ -18,8 +19,12 @@ if (!empty($_GET['scora_context'])) {
         $decoded = base64_decode(str_pad(strtr($parts[0], '-_', '+/'), strlen($parts[0]) % 4, '=', STR_PAD_RIGHT));
         $ctx = json_decode($decoded, true);
         if ($ctx && !empty($ctx['store_id'])) {
-            setSetting('scora_store_id', (string)$ctx['store_id']);
+            $sid = (string)$ctx['store_id'];
+            $_SESSION['scora_store_id'] = $sid;
+            setSetting('scora_store_id', $sid);
             setSetting('scora_installation_id', (string)($ctx['installation_id'] ?? ''));
+            $currentStoreId = $sid;
+            $cloudToken = getStoreAccessToken($sid);
             if (getSetting('store_name', '') === 'Omni Retail Mart' || getSetting('store_name', '') === '') {
                 setSetting('store_name', 'MM Official POS');
             }

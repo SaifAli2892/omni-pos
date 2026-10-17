@@ -14,8 +14,17 @@ $redirectUri  = 'https://saifali.alwaysdata.net/oauth.php';
 $code  = $_GET['code'] ?? '';
 $state = $_GET['state'] ?? '';
 
+if (session_status() === PHP_SESSION_NONE) {
+    @session_start();
+}
+
 // Step 1: Merchant Connect / Re-Authorize Trigger
 if (isset($_GET['connect']) || isset($_GET['install']) || (empty($code) && !empty($_GET['reauth']))) {
+    if (!empty($_GET['store_id'])) {
+        $_SESSION['oauth_requested_store_id'] = (string)$_GET['store_id'];
+        $_SESSION['scora_store_id'] = (string)$_GET['store_id'];
+    }
+
     // Generate PKCE verifier (32 bytes hex) and S256 challenge
     $verifier  = bin2hex(random_bytes(32));
     $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
@@ -75,20 +84,29 @@ if (!empty($code)) {
 
     if ($httpCode === 200 && !empty($tokenData['access_token'])) {
         $token = $tokenData['access_token'];
-        setSetting('cloud_access_token', $token);
+        $refreshToken = $tokenData['refresh_token'] ?? null;
+
+        // Auto-detect store ID and name from Scora GraphQL
+        $client = new CloudSyncClient($pdo);
+        $shopInfo = $client->detectShopDetails($token);
+        
+        $detectedStoreId   = $shopInfo['store_id'] ?? $_SESSION['oauth_requested_store_id'] ?? currentStoreId();
+        $detectedStoreName = $shopInfo['store_name'] ?? getSetting('store_name', 'MM Official POS');
+
+        // Store token strictly isolated for this store
+        setStoreAccessToken($detectedStoreId, $token, $refreshToken, $detectedStoreName);
+        setSetting('scora_store_id', $detectedStoreId);
+        setSetting('store_name', $detectedStoreName);
         setSetting('cloud_local_mode', '0');
         setSetting('cloud_store_domain', 'scora.com.pk');
-        if (!empty($tokenData['refresh_token'])) {
-            setSetting('cloud_refresh_token', $tokenData['refresh_token']);
-        }
+        $_SESSION['scora_store_id'] = $detectedStoreId;
 
-        // Pull full live store catalog via GraphQL
-        $client = new CloudSyncClient($pdo);
-        $syncRes = $client->importStoreProducts();
+        // Pull full live store catalog via GraphQL for this store
+        $syncRes = $client->importStoreProducts($detectedStoreId);
 
         header('X-Frame-Options: ALLOWALL');
         header("Content-Security-Policy: frame-ancestors 'self' https://*.scora.com.pk https://scora.com.pk http://localhost:*");
-        header("Location: index.php?live_synced=1&count=" . ($syncRes['imported'] ?? 0));
+        header("Location: index.php?store_id=" . urlencode($detectedStoreId) . "&live_synced=1&count=" . ($syncRes['imported'] ?? 0));
         exit;
     } else {
         $errMsg = $tokenData['error_description'] ?? $tokenData['error'] ?? $resp ?? 'Token exchange failed';

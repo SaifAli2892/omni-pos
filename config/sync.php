@@ -15,10 +15,16 @@ class CloudSyncClient {
     private $clientSecret;
     private $pdo;
     private $isLocalMode;
+    private $storeId;
+
+    public function getStoreId() {
+        return $this->storeId;
+    }
 
     public function testConnection() {
         return [
             'success' => true,
+            'store_id' => $this->storeId,
             'store_domain' => $this->storeDomain ?: 'standalone',
             'is_local' => $this->isLocalMode
         ];
@@ -26,7 +32,7 @@ class CloudSyncClient {
 
     public function cleanupDuplicates($storeId = null) {
         if (!$this->pdo) return ['success' => false, 'error' => 'No database connection'];
-        $storeId = (string)($storeId ?: currentStoreId());
+        $storeId = (string)($storeId ?: $this->storeId ?: currentStoreId());
         try {
             // Delete duplicate products for this store keeping the earliest record
             $sql = "DELETE p1 FROM products p1
@@ -51,17 +57,62 @@ class CloudSyncClient {
         }
     }
 
-    public function __construct($pdoInstance = null) {
+    public function __construct($pdoInstance = null, $storeId = null) {
         global $pdo;
         $this->pdo = $pdoInstance ?: $pdo;
+        $this->storeId = (string)($storeId ?: currentStoreId());
         
         $this->apiDomain   = rtrim(getSetting('cloud_api_domain', 'https://scora.com.pk'), '/');
         $this->apiVersion   = getSetting('cloud_api_version', '2026-08');
         $this->storeDomain  = trim(getSetting('cloud_store_domain', ''));
-        $this->accessToken  = trim(getSetting('cloud_access_token', ''));
         $this->clientId     = getSetting('cloud_client_id', '11');
         $this->clientSecret = getSetting('cloud_client_secret', '9fbddbbdeb2f98337ef2b94513af72a0945eaa1a5bcfba5f95437875842de1f9');
-        $this->isLocalMode = (getSetting('cloud_local_mode', '1') === '1' || empty($this->accessToken));
+        
+        // Strictly isolated per store token
+        $this->accessToken  = trim(getStoreAccessToken($this->storeId) ?? '');
+        $this->isLocalMode  = (getSetting('cloud_local_mode', '1') === '1' || empty($this->accessToken));
+    }
+
+    /**
+     * Query Scora Admin GraphQL to detect the exact store identity for a given token
+     */
+    public function detectShopDetails($token = null) {
+        $tok = $token ?: $this->accessToken;
+        if (empty($tok)) return null;
+
+        $endpoint = "{$this->apiDomain}/api/admin/{$this->apiVersion}/graphql";
+        $ch = curl_init($endpoint);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode(['query' => 'query { shop { id name } }']),
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $tok
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_SSL_VERIFYPEER => false
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($code === 200 && $resp) {
+            $data = json_decode($resp, true);
+            if (!empty($data['data']['shop'])) {
+                $shop = $data['data']['shop'];
+                $rawId = $shop['id'];
+                $decoded = base64_decode($rawId);
+                $storeNum = preg_match('/\/(\d+)$/', $decoded, $m) ? $m[1] : $rawId;
+                return [
+                    'success'    => true,
+                    'store_id'   => (string)$storeNum,
+                    'raw_id'     => $rawId,
+                    'store_name' => $shop['name'] ?? ''
+                ];
+            }
+        }
+        return null;
     }
 
     public function isConfigured() {
@@ -145,7 +196,18 @@ class CloudSyncClient {
      * Real-Time Import of Store Products from Scora GraphQL API
      */
     public function importStoreProducts($storeId = null) {
-        $storeId = (string)($storeId ?: currentStoreId());
+        $storeId = (string)($storeId ?: $this->storeId ?: currentStoreId());
+        $this->storeId = $storeId;
+        $this->accessToken = trim(getStoreAccessToken($storeId) ?? '');
+
+        if (empty($this->accessToken)) {
+            return [
+                'success'   => false,
+                'need_auth' => true,
+                'auth_url'  => 'oauth.php?connect=1&store_id=' . urlencode($storeId),
+                'error'     => "Store {$storeId} is not connected to Scora yet. Click Live Scora Sync to authorize."
+            ];
+        }
 
         // Attempt live GraphQL query
         $result = $this->fetchProducts(100);
@@ -212,10 +274,10 @@ class CloudSyncClient {
             // Try refresh if refresh token is available
             if (!$this->refreshAccessToken()) {
                 return [
-                    'success' => false,
+                    'success'   => false,
                     'need_auth' => true,
-                    'auth_url' => 'oauth.php?connect=1',
-                    'error' => 'Store is not authenticated.'
+                    'auth_url'  => 'oauth.php?connect=1&store_id=' . urlencode($this->storeId),
+                    'error'     => "Store {$this->storeId} is not authenticated."
                 ];
             }
         }
@@ -265,7 +327,12 @@ class CloudSyncClient {
 
     private function query($graphQLQuery, $variables = [], $retried = false) {
         if (empty($this->accessToken)) {
-            return ['success' => false, 'need_auth' => true, 'error' => 'No access token available'];
+            return [
+                'success'   => false,
+                'need_auth' => true,
+                'auth_url'  => 'oauth.php?connect=1&store_id=' . urlencode($this->storeId),
+                'error'     => 'No access token available for store ' . $this->storeId
+            ];
         }
 
         $endpoint = "{$this->apiDomain}/api/admin/{$this->apiVersion}/graphql";
@@ -309,7 +376,7 @@ class CloudSyncClient {
             return [
                 'success'   => false,
                 'need_auth' => true,
-                'auth_url'  => 'oauth.php?connect=1',
+                'auth_url'  => 'oauth.php?connect=1&store_id=' . urlencode($this->storeId),
                 'error'     => 'Token expired. Please click Live Scora Sync to re-authorize.'
             ];
         }
