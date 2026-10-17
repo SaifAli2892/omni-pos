@@ -152,11 +152,4 @@ if ($action === 'test_rest') {
     exit;
 }
 
-if ($action === 'test_insert') {
-    $row67 = $pdo->query("SELECT * FROM products WHERE id = 67")->fetch();
-    $rowsAll = $pdo->query("SELECT id, store_id, title FROM products ORDER BY id DESC LIMIT 5")->fetchAll();
-    echo json_encode(['row67' => $row67, 'recent' => $rowsAll]);
-    exit;
-}
-
 echo json_encode(['success' => false, 'error' => 'Invalid action']);

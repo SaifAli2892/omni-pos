@@ -382,11 +382,5 @@ try {
             $pdo->exec("ALTER TABLE sync_logs ADD COLUMN store_id VARCHAR(50) NOT NULL DEFAULT '56' AFTER id");
             $pdo->exec("ALTER TABLE sync_logs ADD INDEX idx_store (store_id)");
         }
-
-        // Purge all cross-pollinated test shampoo products from all stores
-        $pdo->exec("DELETE FROM products WHERE title LIKE 'LEO Organic%' OR title LIKE '%hair and skin care%' OR title LIKE 'Haircare package' OR title LIKE 'skin care package'");
-
-        // Delete global fallback access token and store id from settings so OAuth is strictly per-store
-        $pdo->exec("DELETE FROM settings WHERE `key` IN ('cloud_access_token', 'scora_store_id')");
     }
 } catch (Exception $e) {}
