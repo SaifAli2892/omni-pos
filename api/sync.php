@@ -153,11 +153,11 @@ if ($action === 'test_rest') {
 }
 
 if ($action === 'inspect_logs') {
-    $s = $pdo->query("SELECT * FROM sync_logs ORDER BY id DESC LIMIT 10")->fetchAll();
-    $counts = $pdo->query("SELECT store_id, COUNT(*) as cnt FROM products GROUP BY store_id")->fetchAll();
-    $tokens = $pdo->query("SELECT store_id, store_name, updated_at FROM store_tokens")->fetchAll();
-    $allProdStores = $pdo->query("SELECT id, store_id, title FROM products LIMIT 15")->fetchAll();
-    echo json_encode(['tokens' => $tokens, 'product_counts' => $counts, 'sample_products' => $allProdStores]);
+    $cols = $pdo->query("DESCRIBE products")->fetchAll(PDO::FETCH_COLUMN);
+    $lastErr = $pdo->query("SHOW WARNINGS")->fetchAll();
+    $p53 = $pdo->query("SELECT * FROM products WHERE store_id = '53'")->fetchAll();
+    $allP = $pdo->query("SELECT id, store_id, title, scora_product_id FROM products ORDER BY id DESC LIMIT 15")->fetchAll();
+    echo json_encode(['columns' => $cols, 'p53' => $p53, 'recent_products' => $allP]);
     exit;
 }
 
